@@ -1,0 +1,122 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function belongsToOrg(orgId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.uid));
+    }
+
+    function userDoc(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.uid));
+    }
+
+    function isAdminOrManager(orgId) {
+      return belongsToOrg(orgId) &&
+        userDoc(orgId).data.role in ['admin', 'manager'] &&
+        userDoc(orgId).data.status == 'active';
+    }
+
+    function isActiveMember(orgId) {
+      return belongsToOrg(orgId) &&
+        (
+          !('status' in userDoc(orgId).data) ||
+          userDoc(orgId).data.status in ['active', 'invited']
+        );
+    }
+
+    // OAuth tokens — Admin SDK only
+    match /tokens/{userId} {
+      allow read, write: if false;
+    }
+
+    // Cross-org invite lookup index — write via client for invite create; claim updates allowed for invitee
+    match /invites_index/{inviteId} {
+      allow create: if isAuthenticated();
+      allow read: if isAuthenticated() &&
+        resource.data.email == request.auth.token.email;
+      allow update: if isAuthenticated() &&
+        resource.data.email == request.auth.token.email;
+      allow delete: if false;
+    }
+
+    match /organizations/{orgId} {
+      allow create: if isAuthenticated();
+      allow read: if isActiveMember(orgId);
+      allow update: if isAdminOrManager(orgId);
+      allow delete: if false;
+
+      match /users/{userId} {
+        allow read: if isActiveMember(orgId);
+        allow create: if isAuthenticated() &&
+          (request.auth.uid == userId || isAdminOrManager(orgId));
+        allow update: if isAuthenticated() &&
+          (request.auth.uid == userId || isAdminOrManager(orgId));
+        allow delete: if isAdminOrManager(orgId);
+      }
+
+      match /invites/{inviteId} {
+        allow read: if isAdminOrManager(orgId) ||
+          (isAuthenticated() && resource.data.email == request.auth.token.email);
+        allow create: if isAdminOrManager(orgId);
+        allow update: if isAdminOrManager(orgId) ||
+          (isAuthenticated() && resource.data.email == request.auth.token.email);
+        allow delete: if isAdminOrManager(orgId);
+      }
+
+      match /contacts/{contactId} {
+        allow read, write: if isActiveMember(orgId);
+
+        match /activity/{activityId} {
+          allow read, write: if isActiveMember(orgId);
+        }
+      }
+
+      match /companies/{companyId} {
+        allow read, write: if isActiveMember(orgId);
+      }
+
+      match /deals/{dealId} {
+        allow read, write: if isActiveMember(orgId);
+      }
+
+      match /sequences/{sequenceId} {
+        allow read, write: if isActiveMember(orgId);
+
+        match /enrollments/{enrollmentId} {
+          allow read, write: if isActiveMember(orgId);
+        }
+      }
+
+      match /emailEvents/{eventId} {
+        allow read: if isActiveMember(orgId);
+        allow write: if false; // server / Admin SDK only
+      }
+
+      match /importJobs/{jobId} {
+        allow read: if isActiveMember(orgId);
+        allow create: if isActiveMember(orgId);
+        allow update: if false; // Cloud Functions update progress
+        allow delete: if isAdminOrManager(orgId);
+      }
+
+      match /sendAttempts/{attemptId} {
+        allow read, write: if false;
+      }
+
+      match /stats/{docId} {
+        allow read: if isActiveMember(orgId);
+        allow write: if false;
+      }
+
+      match /mailboxCaps/{docId} {
+        allow read, write: if false;
+      }
+    }
+  }
+}

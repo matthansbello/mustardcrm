@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function belongsToOrg(orgId) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/organizations/$(orgId)/users/$(request.auth.uid));
+    }
+
+    // Org-scoped imports — authenticated org members can upload; only Admin SDK reads for processing
+    match /organizations/{orgId}/imports/{allPaths=**} {
+      allow read: if belongsToOrg(orgId);
+      allow write: if belongsToOrg(orgId)
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('text/csv|application/.*|text/plain');
+    }
+
+    match /organizations/{orgId}/error-reports/{allPaths=**} {
+      allow read: if belongsToOrg(orgId);
+      allow write: if false;
+    }
+  }
+}
