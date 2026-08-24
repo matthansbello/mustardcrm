@@ -17,6 +17,7 @@ export interface ParsedRow {
 export interface ParseResult {
   headers: string[];
   autoMapping: Record<string, string>;
+  rawRows: Record<string, any>[];
   rows: ParsedRow[];
   totalRows: number;
   validCount: number;
@@ -27,25 +28,49 @@ export interface ParseResult {
 const COMMON_HEADER_MAP: Record<string, string> = {
   email: 'email',
   'email address': 'email',
+  email_address: 'email',
   'e-mail': 'email',
+  'e-mail address': 'email',
+  mail: 'email',
+
   'first name': 'firstName',
   firstname: 'firstName',
+  first_name: 'firstName',
   'given name': 'firstName',
-  name: 'firstName',
+  given_name: 'firstName',
+  fname: 'firstName',
+
   'last name': 'lastName',
   lastname: 'lastName',
+  last_name: 'lastName',
   surname: 'lastName',
+  family_name: 'lastName',
+  'family name': 'lastName',
+  lname: 'lastName',
+
   company: 'companyName',
   'company name': 'companyName',
+  company_name: 'companyName',
   organization: 'companyName',
+  org: 'companyName',
+  business: 'companyName',
+
   title: 'title',
   'job title': 'title',
+  job_title: 'title',
   position: 'title',
+  role: 'title',
+
   phone: 'phone',
   'phone number': 'phone',
+  phone_number: 'phone',
   mobile: 'phone',
+  cell: 'phone',
+  telephone: 'phone',
+
   tags: 'tags',
   tag: 'tags',
+  labels: 'tags',
 };
 
 /**
@@ -54,64 +79,51 @@ const COMMON_HEADER_MAP: Record<string, string> = {
 export function autoDetectMapping(headers: string[]): Record<string, string> {
   const mapping: Record<string, string> = {};
   headers.forEach((h) => {
-    const normalized = h.toLowerCase().trim();
+    const cleanHeader = h.replace(/^\uFEFF/, '').trim();
+    const normalized = cleanHeader.toLowerCase();
+    const normalizedNoUnderscores = normalized.replace(/_/g, ' ');
+
     if (COMMON_HEADER_MAP[normalized]) {
-      mapping[h] = COMMON_HEADER_MAP[normalized];
+      mapping[cleanHeader] = COMMON_HEADER_MAP[normalized];
+    } else if (COMMON_HEADER_MAP[normalizedNoUnderscores]) {
+      mapping[cleanHeader] = COMMON_HEADER_MAP[normalizedNoUnderscores];
     } else {
-      mapping[h] = `custom_${normalized.replace(/[^a-z0-9]/g, '_')}`;
+      mapping[cleanHeader] = `custom_${normalized.replace(/[^a-z0-9]/g, '_')}`;
     }
   });
   return mapping;
 }
 
 /**
- * Parse CSV or XLSX File client-side
+ * Re-map raw parsed rows using a custom column mapping dictionary
  */
-export async function parseImportFile(file: File): Promise<ParseResult> {
-  const extension = file.name.split('.').pop()?.toLowerCase();
-
-  let rawRows: Record<string, any>[] = [];
-  let headers: string[] = [];
-
-  if (extension === 'csv') {
-    const text = await file.text();
-    const result = Papa.parse<Record<string, any>>(text, {
-      header: true,
-      skipEmptyLines: true,
-    });
-    rawRows = result.data;
-    headers = result.meta.fields || Object.keys(rawRows[0] || {});
-  } else if (['xlsx', 'xls'].includes(extension || '')) {
-    const arrayBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet);
-    if (rawRows.length > 0) {
-      headers = Object.keys(rawRows[0]);
-    }
-  } else {
-    throw new Error('Unsupported file type. Please upload a .csv, .xlsx, or .xls file.');
-  }
-
-  const autoMapping = autoDetectMapping(headers);
-
-  // Validate rows
+export function mapAndValidateRows(
+  rawRows: Record<string, any>[],
+  columnMapping: Record<string, string>
+): { rows: ParsedRow[]; validCount: number; errorCount: number; duplicateCount: number } {
   const seenEmails = new Set<string>();
   let validCount = 0;
   let errorCount = 0;
   let duplicateCount = 0;
 
-  const parsedRows: ParsedRow[] = rawRows.map((row) => {
+  const rows: ParsedRow[] = rawRows.map((row) => {
     const mapped: Record<string, any> = {};
     const customFields: Record<string, any> = {};
 
     Object.entries(row).forEach(([colHeader, value]) => {
-      const targetKey = autoMapping[colHeader];
-      if (targetKey && !targetKey.startsWith('custom_')) {
-        mapped[targetKey] = String(value || '').trim();
-      } else if (targetKey) {
-        customFields[targetKey.replace('custom_', '')] = value;
+      const cleanHeader = colHeader.replace(/^\uFEFF/, '').trim();
+      const targetKey = columnMapping[cleanHeader] || columnMapping[colHeader];
+      const valStr = String(value ?? '').trim();
+
+      if (!targetKey || targetKey === 'ignore') {
+        return;
+      }
+
+      if (!targetKey.startsWith('custom_')) {
+        mapped[targetKey] = valStr;
+      } else {
+        const fieldKey = targetKey.replace(/^custom_/, '');
+        customFields[fieldKey] = value;
       }
     });
 
@@ -135,7 +147,7 @@ export async function parseImportFile(file: File): Promise<ParseResult> {
 
     return {
       email,
-      firstName: mapped.firstName || '',
+      firstName: mapped.firstName || (email.includes('@') ? email.split('@')[0] : ''),
       lastName: mapped.lastName || '',
       companyName: mapped.companyName || '',
       title: mapped.title || '',
@@ -147,11 +159,49 @@ export async function parseImportFile(file: File): Promise<ParseResult> {
     };
   });
 
+  return { rows, validCount, errorCount, duplicateCount };
+}
+
+/**
+ * Parse CSV or XLSX File client-side
+ */
+export async function parseImportFile(file: File): Promise<ParseResult> {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+
+  let rawRows: Record<string, any>[] = [];
+  let headers: string[] = [];
+
+  if (extension === 'csv') {
+    const text = await file.text();
+    const result = Papa.parse<Record<string, any>>(text, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.replace(/^\uFEFF/, '').trim(),
+    });
+    rawRows = result.data;
+    headers = result.meta.fields || (rawRows[0] ? Object.keys(rawRows[0]) : []);
+  } else if (['xlsx', 'xls'].includes(extension || '')) {
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet);
+    if (rawRows.length > 0) {
+      headers = Object.keys(rawRows[0]).map((h) => h.replace(/^\uFEFF/, '').trim());
+    }
+  } else {
+    throw new Error('Unsupported file type. Please upload a .csv, .xlsx, or .xls file.');
+  }
+
+  const autoMapping = autoDetectMapping(headers);
+  const { rows, validCount, errorCount, duplicateCount } = mapAndValidateRows(rawRows, autoMapping);
+
   return {
     headers,
     autoMapping,
-    rows: parsedRows,
-    totalRows: parsedRows.length,
+    rawRows,
+    rows,
+    totalRows: rows.length,
     validCount,
     errorCount,
     duplicateCount,

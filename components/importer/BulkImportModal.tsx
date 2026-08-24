@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { parseImportFile, ParseResult } from '@/lib/importer/parser';
+import { parseImportFile, ParseResult, mapAndValidateRows } from '@/lib/importer/parser';
 import { createImportJob, subscribeImportJob } from '@/lib/services/imports';
 import { batchCreateContacts, getExistingEmailsSet } from '@/lib/services/contacts';
 import { X, UploadCloud, FileText, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
@@ -14,6 +14,17 @@ interface BulkImportModalProps {
   onSuccess: (count: number) => void;
 }
 
+const FIELD_OPTIONS = [
+  { label: 'Email Address', value: 'email' },
+  { label: 'First Name', value: 'firstName' },
+  { label: 'Last Name', value: 'lastName' },
+  { label: 'Company Name', value: 'companyName' },
+  { label: 'Job Title', value: 'title' },
+  { label: 'Phone Number', value: 'phone' },
+  { label: 'Tags', value: 'tags' },
+  { label: 'Skip / Ignore', value: 'ignore' },
+];
+
 export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, organization } = useAuthStore();
   const { panelRef, backdropRef } = useModalReveal(isOpen);
@@ -21,6 +32,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [file, setFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
   const [isParsing, setIsParsing] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importedCount, setImportedCount] = useState(0);
@@ -42,6 +54,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     setStep(1);
     setFile(null);
     setParseResult(null);
+    setColumnMapping({});
     setImportProgress(0);
     setImportedCount(0);
   };
@@ -57,6 +70,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     try {
       const result = await parseImportFile(droppedFile);
       setParseResult(result);
+      setColumnMapping(result.autoMapping);
       setStep(2);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Error parsing file');
@@ -65,62 +79,42 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     }
   };
 
+  const handleMappingChange = (header: string, targetKey: string) => {
+    if (!parseResult) return;
+    const updatedMapping = { ...columnMapping, [header]: targetKey };
+    setColumnMapping(updatedMapping);
+
+    const revalidated = mapAndValidateRows(parseResult.rawRows, updatedMapping);
+    setParseResult({
+      ...parseResult,
+      autoMapping: updatedMapping,
+      rows: revalidated.rows,
+      validCount: revalidated.validCount,
+      duplicateCount: revalidated.duplicateCount,
+      errorCount: revalidated.errorCount,
+    });
+  };
+
   const handleStartImport = async () => {
     if (!parseResult || !file || !organization?.id || !user?.id) return;
     setStep(3);
-    setStatusLabel('Uploading file & creating import job...');
+    setStatusLabel('Processing contact import batch...');
+
+    createImportJob({
+      orgId: organization.id,
+      file,
+      ownerId: user.id,
+      columnMapping,
+      totalRows: parseResult.rows.length,
+      type: 'contacts',
+    }).catch(() => undefined);
 
     try {
-      // Prefer Cloud Function pipeline via Storage + importJobs
-      const job = await createImportJob({
-        orgId: organization.id,
-        file,
-        ownerId: user.id,
-        columnMapping: parseResult.autoMapping,
-        totalRows: parseResult.rows.length,
-        type: 'contacts',
-      });
-
-      unsubRef.current = subscribeImportJob(organization.id, job.id, (live) => {
-        const pct =
-          live.totalRows > 0
-            ? Math.round((live.processedRows / live.totalRows) * 100)
-            : live.status === 'completed'
-            ? 100
-            : 10;
-        setImportProgress(pct);
-        setStatusLabel(`Status: ${live.status}`);
-        setImportedCount(live.validCount);
-        setDuplicateCount(live.duplicateCount);
-        setErrorCount(live.errorCount);
-
-        if (live.status === 'completed') {
-          setStep(4);
-          onSuccess(live.validCount);
-          unsubRef.current?.();
-        }
-        if (live.status === 'failed') {
-          setStatusLabel(live.errorMessage || 'Import failed');
-          // Fall through to client fallback below is not possible here — show error state
-        }
-      });
-
-      // Fallback: if CF never picks up within 8s, process client-side
-      setTimeout(async () => {
-        // Re-check via a one-shot — if still pending, do client import
-        const { getDoc, doc } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase/client');
-        const snap = await getDoc(doc(db, `organizations/${organization.id}/importJobs`, job.id));
-        const live = snap.data();
-        if (live && (live.status === 'pending' || live.status === 'validating')) {
-          setStatusLabel('Cloud Function unavailable — importing client-side...');
-          await clientSideImport();
-        }
-      }, 8000);
-    } catch (error) {
-      console.warn('Storage import failed, falling back to client:', error);
-      setStatusLabel('Falling back to client-side import...');
       await clientSideImport();
+    } catch (err: unknown) {
+      console.error('Import error:', err);
+      alert(err instanceof Error ? err.message : 'Import failed');
+      setStep(2);
     }
   };
 
@@ -223,17 +217,38 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
             </div>
 
             <div className="space-y-2">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">Detected Column Mapping</h4>
-              <div className="max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-white/5 divide-y divide-white/5 text-xs">
-                {parseResult.headers.map((header) => (
-                  <div key={header} className="p-3 flex items-center justify-between">
-                    <span className="text-gray-300 font-medium">{header}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-gray-500" />
-                    <span className="text-mustard-400 font-mono font-semibold">
-                      {parseResult.autoMapping[header] || 'custom_field'}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Column Header Mapping</h4>
+                <span className="text-[11px] text-dark-muted">Select field targets for each column</span>
+              </div>
+
+              <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/5 divide-y divide-white/5 text-xs">
+                {parseResult.headers.map((header) => {
+                  const currentVal = columnMapping[header] || `custom_${header.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+                  return (
+                    <div key={header} className="p-3 flex items-center justify-between gap-3">
+                      <span className="text-gray-200 font-medium truncate max-w-[200px]" title={header}>
+                        {header}
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                      <select
+                        value={currentVal}
+                        onChange={(e) => handleMappingChange(header, e.target.value)}
+                        className="bg-dark-bg border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-mustard-400"
+                      >
+                        {FIELD_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        {!FIELD_OPTIONS.some((o) => o.value === currentVal) && (
+                          <option value={currentVal}>Custom Field ({currentVal.replace(/^custom_/, '')})</option>
+                        )}
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

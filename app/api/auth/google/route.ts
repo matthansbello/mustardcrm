@@ -44,6 +44,7 @@ export async function GET(request: Request) {
     prompt: 'consent',
     state,
     include_granted_scopes: true,
+    // Do not pass `hd` — personal gmail.com accounts must be able to authorize send.
   });
 
   return NextResponse.json({ url: authUrl });

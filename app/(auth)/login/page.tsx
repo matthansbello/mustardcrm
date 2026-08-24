@@ -1,30 +1,51 @@
 'use client';
 
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { signInWithGoogle } from '@/lib/firebase/auth';
+import { signInWithGoogle, syncUserProfile, flushPendingMailboxTokens } from '@/lib/firebase/auth';
+import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Zap, Chrome, AlertCircle } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') || '/dashboard';
+  const next = searchParams?.get('next') || '/dashboard';
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { isAuthenticated, isLoading, setUser, setOrganization } = useAuthStore();
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace(next.startsWith('/') ? next : '/dashboard');
+    }
+  }, [isLoading, isAuthenticated, router, next]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError(null);
     try {
-      await signInWithGoogle();
-      router.push(next.startsWith('/') ? next : '/dashboard');
+      const fbUser = await signInWithGoogle();
+      const { user, organization } = await syncUserProfile(fbUser);
+      setUser(user);
+      setOrganization(organization);
+
+      document.cookie = `__mustard_auth=1; path=/; max-age=${60 * 60 * 24 * 5}; SameSite=Lax`;
+      const idToken = await fbUser.getIdToken();
+      await flushPendingMailboxTokens(idToken, organization.id);
+      await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+
+      const target = next.startsWith('/') ? next : '/dashboard';
+      window.location.href = target;
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Sign-in failed. Check Firebase Auth configuration.';
       console.error('Google sign-in error:', err);
       setError(message);
-    } finally {
       setLoading(false);
     }
   };
@@ -36,7 +57,7 @@ function LoginForm() {
           <Zap className="w-6 h-6 text-white stroke-[2.5]" />
         </div>
         <h1 className="text-2xl font-bold font-display text-white">Welcome back to Mustard</h1>
-        <p className="text-xs text-dark-muted">Sign in with your Google Workspace account</p>
+          <p className="text-xs text-dark-muted">Sign in with Gmail or Google Workspace</p>
       </div>
 
       {error && (
@@ -52,7 +73,7 @@ function LoginForm() {
         className="w-full py-3.5 px-4 rounded-xl glass-button border border-white/20 text-white font-medium text-xs flex items-center justify-center gap-3 hover:bg-white/10 transition-all shadow-glass disabled:opacity-50"
       >
         <Chrome className="w-4 h-4 text-mustard-400" />
-        <span>{loading ? 'Signing in...' : 'Continue with Google Workspace'}</span>
+        <span>{loading ? 'Signing in...' : 'Continue with Google'}</span>
       </button>
 
       <p className="text-center text-xs text-dark-muted">

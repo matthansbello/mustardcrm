@@ -92,7 +92,7 @@ export const Sidebar: React.FC = () => {
           {navigation.map((item) => {
             const isActive =
               pathname === item.href ||
-              (item.href !== '/' && pathname.startsWith(item.href));
+              (item.href !== '/' && !!pathname?.startsWith(item.href));
             const Icon = item.icon;
 
             return (
@@ -126,7 +126,7 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-cyan-400" />
-            <span className="text-xs font-semibold text-white">Google Workspace</span>
+            <span className="text-xs font-semibold text-white">Gmail sending</span>
           </div>
           <span className="text-[10px] text-emerald-400 font-mono">Active</span>
         </div>

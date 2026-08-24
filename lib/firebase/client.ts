@@ -19,8 +19,16 @@ const db: Firestore = getFirestore(app);
 const storage: FirebaseStorage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 
-// Request Google Workspace scopes
+// Any Google account (gmail.com + Workspace). Do not set `hd` — that would
+// restrict login to a single Workspace domain and block personal Gmail.
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+  access_type: 'offline',
+  include_granted_scopes: 'true',
+});
 googleProvider.addScope('https://www.googleapis.com/auth/userinfo.email');
 googleProvider.addScope('https://www.googleapis.com/auth/userinfo.profile');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
 
 export { app, auth, db, storage, googleProvider };

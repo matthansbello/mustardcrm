@@ -56,7 +56,7 @@ export const InboxConnectModal: React.FC<InboxConnectModalProps> = ({ isOpen, on
           </div>
           <h3 className="text-xl font-bold font-display text-white">Connect Gmail Inbox</h3>
           <p className="text-xs text-dark-muted">
-            Authorize Mustard to send cold email sequences directly from your Workspace account.
+            Authorize Mustard to send cold email sequences from this Gmail inbox (personal or Workspace).
           </p>
         </div>
 
@@ -81,7 +81,7 @@ export const InboxConnectModal: React.FC<InboxConnectModalProps> = ({ isOpen, on
           className="w-full py-3.5 px-4 rounded-xl btn-mustard text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-glow-blue disabled:opacity-50"
         >
           <Chrome className="w-4 h-4" />
-          <span>{isConnecting ? 'Redirecting to Google...' : 'Authorize Gmail Workspace Connection'}</span>
+          <span>{isConnecting ? 'Redirecting to Google...' : 'Authorize Gmail Connection'}</span>
         </button>
       </div>
     </div>

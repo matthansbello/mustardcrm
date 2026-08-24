@@ -31,7 +31,7 @@ export default function ContactsPageContent() {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
-    if (searchParams.get('import') === '1') {
+    if (searchParams?.get('import') === '1') {
       setIsImportModalOpen(true);
     }
   }, [searchParams]);

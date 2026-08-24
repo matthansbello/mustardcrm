@@ -26,7 +26,7 @@ function OnboardingContent() {
   }, [organization?.name, orgName]);
 
   useEffect(() => {
-    if (searchParams.get('gmail') === 'connected') {
+    if (searchParams?.get('gmail') === 'connected') {
       setIsConnected(true);
       setInboxStatus('connected');
       setStep(3);
@@ -152,9 +152,9 @@ function OnboardingContent() {
           <div className="space-y-6">
             <div className="space-y-2">
               <span className="text-xs font-semibold text-mustard-400 uppercase tracking-wider">Step 2 of 3</span>
-              <h2 className="text-2xl font-bold font-display text-white">Connect Google Workspace Inbox</h2>
+              <h2 className="text-2xl font-bold font-display text-white">Connect Gmail Inbox</h2>
               <p className="text-xs text-dark-muted">
-                Mustard sends sequence emails directly from your real Gmail address for native deliverability.
+                Mustard sends sequence emails from your real Gmail or Google Workspace address. Personal @gmail.com accounts are fully supported.
               </p>
             </div>
 
@@ -181,7 +181,7 @@ function OnboardingContent() {
                   className="w-full py-3.5 px-4 rounded-xl btn-mustard text-black font-semibold text-xs flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Chrome className="w-4 h-4" />
-                  <span>{isConnecting ? 'Redirecting to Google...' : 'Authorize Gmail Inbox Connection'}</span>
+                  <span>{isConnecting ? 'Redirecting to Google...' : 'Authorize Gmail Connection'}</span>
                 </button>
               )}
 

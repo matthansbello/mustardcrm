@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { User, Organization, InboxConnectionStatus } from '@/types';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase/client';
-import { syncUserProfile } from '@/lib/firebase/auth';
+import { syncUserProfile, flushPendingMailboxTokens } from '@/lib/firebase/auth';
 
 interface AuthState {
   user: User | null;
@@ -47,28 +47,33 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (fbUser) {
         try {
           const { user, organization } = await syncUserProfile(fbUser);
-          set({
-            user,
-            organization,
-            inboxStatus: user.inboxStatus || 'disconnected',
-            isLoading: false,
-            isAuthenticated: true,
-          });
+          let inboxStatus = user.inboxStatus || 'disconnected';
 
-          // Client hint cookie so middleware can pass before Admin session cookie is ready
           document.cookie = `__mustard_auth=1; path=/; max-age=${60 * 60 * 24 * 5}; SameSite=Lax`;
 
-          // Persist session cookie for middleware
           try {
             const idToken = await fbUser.getIdToken();
+            const connected = await flushPendingMailboxTokens(idToken, organization.id);
+            if (connected) {
+              inboxStatus = 'connected';
+              user.inboxStatus = 'connected';
+            }
             await fetch('/api/auth/session', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ idToken }),
             });
           } catch {
-            // Session cookie is best-effort when Admin SDK isn't fully configured
+            // Session cookie / mailbox token persist is best-effort
           }
+
+          set({
+            user,
+            organization,
+            inboxStatus,
+            isLoading: false,
+            isAuthenticated: true,
+          });
         } catch (error) {
           console.error('Error syncing user profile:', error);
           set({
