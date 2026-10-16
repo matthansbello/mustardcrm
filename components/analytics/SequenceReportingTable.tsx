@@ -24,7 +24,8 @@ export const SequenceReportingTable: React.FC<SequenceReportingTableProps> = ({ 
           No campaign analytics yet. Launch a cold email sequence to view performance stats here.
         </div>
       ) : (
-        <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-left text-xs">
           <thead className="bg-white/5 border-b border-white/10 text-dark-muted font-medium uppercase tracking-wider">
             <tr>
               <th className="p-4">Sequence Name</th>
@@ -50,6 +51,7 @@ export const SequenceReportingTable: React.FC<SequenceReportingTableProps> = ({ 
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

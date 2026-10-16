@@ -24,7 +24,7 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
   const panelRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
 
-  const [formData, setFormData] = useState({
+  const emptyForm = {
     firstName: '',
     lastName: '',
     email: '',
@@ -32,7 +32,9 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
     companyName: '',
     phone: '',
     tags: 'lead, inbound',
-  });
+  };
+  const [formData, setFormData] = useState(emptyForm);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
@@ -78,19 +80,34 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
 
   if (!isOpen) return null;
 
+  const handleClose = () => {
+    setSaveError(null);
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isDuplicate || isSaving || !organization?.id || !user?.id) return;
+    if (isDuplicate || isSaving) return;
+    if (!organization?.id || !user?.id) {
+      setSaveError('Your session is still loading — wait a moment and try again.');
+      return;
+    }
 
     setIsSaving(true);
+    setSaveError(null);
     try {
+      // Re-check at save time in case the debounced check hasn't run yet.
+      if (await checkDuplicateEmail(organization.id, formData.email)) {
+        setIsDuplicate(true);
+        return;
+      }
       const newContact = await createContact(organization.id, {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
         email: formData.email,
-        title: formData.title || undefined,
-        companyName: formData.companyName || undefined,
-        phone: formData.phone || undefined,
+        title: formData.title.trim() || undefined,
+        companyName: formData.companyName.trim() || undefined,
+        phone: formData.phone.trim() || undefined,
         tags: formData.tags
           .split(',')
           .map((t) => t.trim())
@@ -99,10 +116,17 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
         lifecycleStage: 'lead',
         customFields: {},
       });
+      setFormData(emptyForm);
       onSuccess(newContact);
-      onClose();
+      handleClose();
     } catch (err) {
       console.error('Failed to create contact:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setSaveError(
+        /permission/i.test(message)
+          ? 'You do not have permission to add contacts. Sign out and back in, then try again.'
+          : `Could not save contact: ${message}`
+      );
     } finally {
       setIsSaving(false);
     }
@@ -128,10 +152,17 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
                 <p className="text-xs text-dark-muted">Manual lead entry with real-time deduping</p>
               </div>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-white p-1">
+            <button onClick={handleClose} aria-label="Close" className="text-gray-400 hover:text-white p-1">
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {saveError && (
+            <div className="mb-4 p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{saveError}</span>
+            </div>
+          )}
 
           <form id="add-contact-form" onSubmit={handleSubmit} className="space-y-4">
             <div className={`space-y-1.5 ${shake ? 'animate-pulse' : ''}`}>
@@ -245,7 +276,7 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
         <div className="pt-4 border-t border-white/10 flex gap-3">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="glass-button flex-1 py-2.5 rounded-xl text-xs font-medium text-gray-300"
           >
             Cancel

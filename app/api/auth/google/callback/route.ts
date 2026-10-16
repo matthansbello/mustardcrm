@@ -2,13 +2,12 @@ import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { adminDb } from '@/lib/firebase/admin';
 import { encryptToken, verifyOAuthState } from '@/lib/crypto';
+import { getAppUrl, getGoogleRedirectUri } from '@/lib/appUrl';
 
-function getOAuthClient() {
+function getOAuthClient(request: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri =
-    process.env.GOOGLE_REDIRECT_URI ||
-    `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/google/callback`;
+  const redirectUri = getGoogleRedirectUri(request);
 
   if (!clientId || !clientSecret) {
     throw new Error('Google OAuth credentials not configured');
@@ -28,7 +27,7 @@ export async function GET(request: Request) {
   const code = searchParams.get('code');
   const stateRaw = searchParams.get('state');
   const error = searchParams.get('error');
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = getAppUrl(request);
 
   if (error) {
     return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=${encodeURIComponent(error)}`);
@@ -50,7 +49,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { oauth2Client } = getOAuthClient();
+    const { oauth2Client } = getOAuthClient(request);
     const { tokens } = await oauth2Client.getToken(code);
 
     if (!tokens.refresh_token && !tokens.access_token) {

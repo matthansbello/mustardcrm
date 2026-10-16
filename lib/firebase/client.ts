@@ -1,7 +1,14 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, GoogleAuthProvider, OAuthProvider, GithubAuthProvider } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
-import { getStorage, FirebaseStorage } from 'firebase/storage';
+import {
+  getAuth,
+  Auth,
+  GoogleAuthProvider,
+  OAuthProvider,
+  GithubAuthProvider,
+  connectAuthEmulator,
+} from 'firebase/auth';
+import { getFirestore, initializeFirestore, Firestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getStorage, FirebaseStorage, connectStorageEmulator } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'demo-api-key',
@@ -13,10 +20,22 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase for Client Side
-const app: FirebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const isFirstInit = getApps().length === 0;
+const app: FirebaseApp = isFirstInit ? initializeApp(firebaseConfig) : getApp();
 const auth: Auth = getAuth(app);
-const db: Firestore = getFirestore(app);
+// Optional fields (title, phone, …) are often undefined — drop them instead of
+// letting Firestore reject the whole write.
+const db: Firestore = isFirstInit
+  ? initializeFirestore(app, { ignoreUndefinedProperties: true })
+  : getFirestore(app);
 const storage: FirebaseStorage = getStorage(app);
+
+// `npm run emulators` + NEXT_PUBLIC_FIREBASE_EMULATORS=true for local testing without touching prod data.
+if (isFirstInit && process.env.NEXT_PUBLIC_FIREBASE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+}
 const googleProvider = new GoogleAuthProvider();
 
 // Any Google account (gmail.com + Workspace). Do not set `hd` — that would

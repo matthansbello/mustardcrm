@@ -38,28 +38,32 @@ export function useStagger<T extends HTMLElement = HTMLDivElement>(
       return;
     }
 
-    gsap.fromTo(
-      targets,
-      {
-        opacity: 0,
-        y: yOffset,
-        scale: scaleFrom,
-        filter: 'blur(8px)',
-      },
-      {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        filter: 'blur(0px)',
-        duration,
-        stagger: {
-          each: stagger,
-          from: 'start',
+    const ctx = gsap.context(() => {
+      gsap.fromTo(
+        targets,
+        {
+          opacity: 0,
+          y: yOffset,
+          scale: scaleFrom,
+          filter: 'blur(8px)',
         },
-        ease: 'back.out(1.4)',
-        clearProps: 'filter,transform',
-      }
-    );
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          filter: 'blur(0px)',
+          duration,
+          stagger: {
+            each: stagger,
+            from: 'start',
+          },
+          ease: 'back.out(1.4)',
+          clearProps: 'opacity,filter,transform',
+        }
+      );
+    }, containerRef);
+
+    return () => ctx.revert();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefersReducedMotion, stagger, duration, yOffset, scaleFrom, ...deps]);
 

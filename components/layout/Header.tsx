@@ -4,15 +4,17 @@ import React from 'react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { ConnectionStatusBadge } from './ConnectionStatusBadge';
 import { InboxConnectModal } from '../auth/InboxConnectModal';
-import { Search, Bell, Plus, ChevronDown, LogOut } from 'lucide-react';
+import { Search, Bell, Plus, ChevronDown, LogOut, Menu } from 'lucide-react';
 import { signOutUser } from '@/lib/firebase/auth';
 
 interface HeaderProps {
   title?: string;
   subtitle?: string;
+  /** Opens the sidebar drawer on small screens. */
+  onMenuClick?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
+export const Header: React.FC<HeaderProps> = ({ title, subtitle, onMenuClick }) => {
   const { user, organization, inboxStatus } = useAuthStore();
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
@@ -24,9 +26,17 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
   };
 
   return (
-    <header className="h-16 border-b border-blue-500/10 bg-dark-bg/55 backdrop-blur-xl sticky top-0 z-30 px-6 flex items-center justify-between">
+    <header className="h-16 border-b border-blue-500/10 bg-dark-bg/55 backdrop-blur-xl sticky top-0 z-30 px-4 sm:px-6 flex items-center justify-between gap-3">
       {/* Title / Search area */}
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+        <button
+          type="button"
+          onClick={onMenuClick}
+          aria-label="Open navigation"
+          className="lg:hidden w-9 h-9 rounded-xl glass-button flex items-center justify-center text-gray-200"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
         <div>
           {title && <h1 className="text-lg font-bold text-white tracking-tight">{title}</h1>}
           {subtitle && <p className="text-xs text-dark-muted">{subtitle}</p>}
@@ -44,7 +54,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
       </div>
 
       {/* Actions & Profile */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         {/* Inbox Connection Indicator (Clickable to manage/reconnect) */}
         <button onClick={() => setIsModalOpen(true)} className="hover:opacity-80 transition-opacity">
           <ConnectionStatusBadge status={inboxStatus} />
@@ -60,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
         </button>
 
         {/* Notifications */}
-        <button className="w-9 h-9 rounded-xl glass-button flex items-center justify-center text-gray-300 hover:text-white relative">
+        <button className="hidden sm:flex w-9 h-9 rounded-xl glass-button items-center justify-center text-gray-300 hover:text-white relative">
           <Bell className="w-4 h-4" />
           <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-cyan-400 shadow-glow-violet" />
         </button>

@@ -1,16 +1,19 @@
 import type { Metadata } from 'next';
-import { Bricolage_Grotesque } from 'next/font/google';
+import localFont from 'next/font/local';
 import { AppProviders } from '@/components/providers/AppProviders';
 import './globals.css';
 
-const bricolage = Bricolage_Grotesque({
-  subsets: ['latin'],
+// Self-hosted (SIL OFL) so builds never depend on reaching Google Fonts.
+const bricolage = localFont({
+  src: './fonts/BricolageGrotesque-Variable.woff2',
+  weight: '200 800',
   display: 'swap',
   variable: '--font-bricolage',
+  fallback: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
 });
 
 export const metadata: Metadata = {
-  title: 'Mustard — CRM & Cold Email Platform for Google Workspace',
+  title: 'Mustard CRM',
   description: 'Unified CRM and cold outreach platform built natively for Google Workspace teams.',
 };
 

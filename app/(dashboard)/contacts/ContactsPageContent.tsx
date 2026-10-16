@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Contact, ActivityItem } from '@/types';
@@ -21,6 +21,7 @@ export default function ContactsPageContent() {
   });
   const { organization } = useAuthStore();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -162,7 +163,11 @@ export default function ContactsPageContent() {
 
       <BulkImportModal
         isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
+        onClose={() => {
+          setIsImportModalOpen(false);
+          // Drop ?import=1 so a refresh doesn't reopen the importer.
+          if (searchParams?.get('import')) router.replace('/contacts');
+        }}
         onSuccess={() => undefined}
       />
     </div>

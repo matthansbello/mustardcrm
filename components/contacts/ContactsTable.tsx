@@ -96,7 +96,7 @@ export function ContactsTable({
 
   return (
     <div className="overflow-auto max-h-[70vh]">
-      <table className="w-full text-left text-xs">
+      <table className="w-full min-w-[640px] text-left text-xs">
         <thead className="bg-white/5 border-b border-white/10 text-dark-muted font-medium uppercase tracking-wider sticky top-0 backdrop-blur-md">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>

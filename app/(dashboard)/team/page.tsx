@@ -86,7 +86,8 @@ export default function TeamPage() {
             No team members added yet. Click "Invite Teammate" to add your sales team.
           </div>
         ) : (
-          <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-xs">
             <thead className="bg-white/5 border-b border-white/10 text-dark-muted font-medium uppercase tracking-wider">
               <tr>
                 <th className="p-4">Teammate</th>
@@ -127,6 +128,7 @@ export default function TeamPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

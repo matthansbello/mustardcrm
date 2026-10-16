@@ -52,32 +52,36 @@ export function useGsapReveal<T extends HTMLElement = HTMLDivElement>(
       return;
     }
 
-    gsap.set(targets, {
-      opacity: 0,
-      y: yOffset,
-      scale: scaleFrom,
-      rotate: rotateFrom,
-      filter: blurFrom > 0 ? `blur(${blurFrom}px)` : 'none',
-      transformOrigin: '50% 80%',
-    });
-
+    // fromTo inside the context so revert() (unmount / Strict Mode re-run / dep
+    // change) also undoes the hidden starting state instead of leaving it behind.
     const ctx = gsap.context(() => {
-      gsap.to(targets, {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        rotate: 0,
-        filter: 'blur(0px)',
-        duration,
-        delay,
-        stagger: {
-          each: stagger,
-          from: 'start',
-          ease: 'power2.out',
+      gsap.fromTo(
+        targets,
+        {
+          opacity: 0,
+          y: yOffset,
+          scale: scaleFrom,
+          rotate: rotateFrom,
+          filter: blurFrom > 0 ? `blur(${blurFrom}px)` : 'none',
+          transformOrigin: '50% 80%',
         },
-        ease: 'power4.out',
-        clearProps: 'filter,transform',
-      });
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          rotate: 0,
+          filter: 'blur(0px)',
+          duration,
+          delay,
+          stagger: {
+            each: stagger,
+            from: 'start',
+            ease: 'power2.out',
+          },
+          ease: 'power4.out',
+          clearProps: 'opacity,filter,transform',
+        }
+      );
     }, containerRef);
 
     return () => ctx.revert();

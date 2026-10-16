@@ -308,6 +308,18 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
           </>
         )}
       </p>
+
+      <p className="text-center text-[11px] text-dark-muted leading-relaxed">
+        By continuing, you agree to our{' '}
+        <Link href="/terms" className="underline hover:text-white">
+          Terms of Service
+        </Link>{' '}
+        and{' '}
+        <Link href="/privacy" className="underline hover:text-white">
+          Privacy Policy
+        </Link>
+        .
+      </p>
     </div>
   );
 }

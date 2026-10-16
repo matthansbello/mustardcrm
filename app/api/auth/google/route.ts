@@ -3,6 +3,7 @@ import { google } from 'googleapis';
 import { adminAuth } from '@/lib/firebase/admin';
 import { signOAuthState } from '@/lib/crypto';
 import { SHARED_ORG_ID } from '@/lib/auth/domains';
+import { getGoogleRedirectUri } from '@/lib/appUrl';
 
 /**
  * Start Gmail OAuth consent flow.
@@ -25,9 +26,7 @@ export async function GET(request: Request) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri =
-    process.env.GOOGLE_REDIRECT_URI ||
-    `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/google/callback`;
+  const redirectUri = getGoogleRedirectUri(request);
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(

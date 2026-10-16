@@ -5,9 +5,16 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { usePageTransition } from '@/lib/hooks/usePageTransition';
+import { usePathname } from 'next/navigation';
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const pageRef = usePageTransition<HTMLElement>();
+  const pathname = usePathname();
+  const [navOpen, setNavOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
 
   return (
     <div className="min-h-screen bg-dark-bg flex relative overflow-hidden">
@@ -18,11 +25,18 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         style={{ animationDelay: '2s' }}
       />
 
-      <Sidebar />
+      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
-      <div className="flex-1 ml-64 flex flex-col min-w-0 relative z-10">
-        <Header />
-        <main ref={pageRef} className="flex-1 p-6 md:p-8 max-w-7xl w-full mx-auto">
+      <div className="flex-1 lg:ml-64 flex flex-col min-w-0 relative z-10">
+        <Header onMenuClick={() => setNavOpen(true)} />
+        <main ref={pageRef} className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto min-w-0">
           {children}
         </main>
       </div>

@@ -28,7 +28,13 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  /** Mobile drawer state; the sidebar is always visible from lg up. */
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
   const pathname = usePathname();
   const navRef = useRef<HTMLElement>(null);
   const prefersReducedMotion = useReducedMotion();
@@ -65,11 +71,16 @@ export const Sidebar: React.FC = () => {
   }, [pathname, prefersReducedMotion]);
 
   return (
-    <aside className="w-64 h-screen fixed left-0 top-0 z-40 bg-dark-bg/70 backdrop-blur-2xl border-r border-blue-500/10 flex flex-col justify-between p-4 select-none">
+    <aside
+      className={`w-64 h-screen fixed left-0 top-0 z-50 bg-dark-bg/95 lg:bg-dark-bg/70 backdrop-blur-2xl border-r border-blue-500/10 flex flex-col justify-between p-4 select-none overflow-y-auto transition-transform duration-300 lg:translate-x-0 ${
+        open ? 'translate-x-0' : '-translate-x-full'
+      }`}
+    >
       <div>
         <Link
           ref={brandRef}
           href="/dashboard"
+          onClick={onClose}
           className="flex items-center gap-3 px-3 py-3 mb-6 group"
         >
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 via-blue-600 to-cyan-400 flex items-center justify-center shadow-glow-blue group-hover:scale-110 transition-transform duration-300">
@@ -99,6 +110,7 @@ export const Sidebar: React.FC = () => {
               <Link
                 key={item.name}
                 href={item.href}
+                onClick={onClose}
                 data-nav-item
                 data-nav-active={isActive ? 'true' : 'false'}
                 className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
@@ -122,17 +134,27 @@ export const Sidebar: React.FC = () => {
         </nav>
       </div>
 
-      <div className="p-3.5 rounded-xl glass-panel border border-blue-500/20 space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-            <span className="text-xs font-semibold text-white">Gmail sending</span>
+      <div className="space-y-3">
+        <div className="p-3.5 rounded-xl glass-panel border border-blue-500/20 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs font-semibold text-white">Gmail sending</span>
+            </div>
+            <span className="text-[10px] text-emerald-400 font-mono">Active</span>
           </div>
-          <span className="text-[10px] text-emerald-400 font-mono">Active</span>
+          <p className="text-[11px] text-dark-muted leading-relaxed">
+            Cold email throttle set to 50 sends/day per mailbox.
+          </p>
         </div>
-        <p className="text-[11px] text-dark-muted leading-relaxed">
-          Cold email throttle set to 50 sends/day per mailbox.
-        </p>
+        <div className="flex justify-center gap-4 text-[11px] text-dark-muted">
+          <Link href="/privacy" onClick={onClose} className="hover:text-white">
+            Privacy
+          </Link>
+          <Link href="/terms" onClick={onClose} className="hover:text-white">
+            Terms
+          </Link>
+        </div>
       </div>
     </aside>
   );

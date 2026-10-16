@@ -518,6 +518,10 @@ export const onImportJobCreated = onDocumentCreated(
     const jobId = event.params.jobId;
     const jobRef = snap.ref;
 
+    // The web app imports rows itself and records the job as "completed";
+    // only process jobs explicitly queued for the server with an uploaded file.
+    if (job.status !== 'pending' || !job.storagePath) return;
+
     await jobRef.update({ status: 'validating', updatedAt: new Date().toISOString() });
 
     try {

@@ -2,5 +2,13 @@
   command = "npm run build"
   publish = ".next"
 
+[build.environment]
+  NODE_VERSION = "20"
+  # These values are public by design (NEXT_PUBLIC_* is shipped to the browser;
+  # project id / redirect URI / Pub/Sub topic are not credentials), so don't let
+  # secret scanning fail the build on them. Real secrets (private key, client
+  # secret, encryption key, cron secret) are still scanned.
+  SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_APP_URL,NEXT_PUBLIC_FIREBASE_API_KEY,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,NEXT_PUBLIC_FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,NEXT_PUBLIC_FIREBASE_APP_ID,NEXT_PUBLIC_CLOUD_FUNCTIONS_URL,NEXT_PUBLIC_AUTH_METHODS,FIREBASE_PROJECT_ID,GOOGLE_REDIRECT_URI,GMAIL_PUBSUB_TOPIC,MUSTARD_WORKSPACE_ID,MUSTARD_WORKSPACE_NAME,MUSTARD_ADMIN_EMAILS"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
