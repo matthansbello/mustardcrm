@@ -1,41 +1,55 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Plus, Search, Upload, Users } from 'lucide-react';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { Contact, ActivityItem } from '@/types';
+import { Contact, ActivityItem, ContactLifecycleStage } from '@/types';
 import { subscribeContacts, subscribeContactActivity } from '@/lib/services/contacts';
 import { AddContactSlideOver } from '@/components/contacts/AddContactSlideOver';
 import { BulkImportModal } from '@/components/importer/BulkImportModal';
 import { ContactsTable } from '@/components/contacts/ContactsTable';
-import { ActivityTimeline } from '@/components/crm/ActivityTimeline';
-import { Users, Plus, Upload, Filter, Search } from 'lucide-react';
+import { ContactDetailPanel } from '@/components/contacts/ContactDetailPanel';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
+
+const STAGES: ContactLifecycleStage[] = [
+  'lead',
+  'contacted',
+  'replied',
+  'opportunity',
+  'customer',
+  'unsubscribed',
+  'bounced',
+];
 
 export default function ContactsPageContent() {
-  const containerRef = useGsapReveal<HTMLDivElement>({
-    stagger: 0.1,
-    yOffset: 48,
-    scaleFrom: 0.9,
-    blurFrom: 12,
-  });
+  const containerRef = useGsapReveal<HTMLDivElement>();
   const { organization } = useAuthStore();
   const searchParams = useSearchParams();
   const router = useRouter();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isAddSlideOverOpen, setIsAddSlideOverOpen] = useState(false);
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState(searchParams?.get('q') || '');
+  const [stageFilter, setStageFilter] = useState<'all' | ContactLifecycleStage>('all');
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
+  // Deep links: ?import=1, ?new=1, ?q=term (from the header search)
   useEffect(() => {
-    if (searchParams?.get('import') === '1') {
-      setIsImportModalOpen(true);
-    }
+    if (searchParams?.get('import') === '1') setIsImportOpen(true);
+    if (searchParams?.get('new') === '1') setIsAddOpen(true);
+    const q = searchParams?.get('q');
+    if (q !== null && q !== undefined) setSearchTerm(q);
   }, [searchParams]);
+
+  const clearDeepLink = () => {
+    if (searchParams?.get('import') || searchParams?.get('new')) router.replace('/contacts');
+  };
 
   useEffect(() => {
     if (!organization?.id) return;
@@ -60,113 +74,108 @@ export default function ContactsPageContent() {
     return () => unsub();
   }, [organization?.id, selectedContact?.id]);
 
+  const filtered = useMemo(
+    () => (stageFilter === 'all' ? contacts : contacts.filter((c) => c.lifecycleStage === stageFilter)),
+    [contacts, stageFilter]
+  );
+
   return (
     <div ref={containerRef} className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold font-display text-white">Contacts</h1>
-          <p className="text-xs text-dark-muted">
-            Manage prospect details, lifecycle stages, and bulk imports.
-            {!isLoading && (
-              <span className="text-mustard-400 ml-2">{contacts.length} contacts</span>
-            )}
-          </p>
-        </div>
+      <PageHeader
+        title="Contacts"
+        description={
+          isLoading
+            ? 'Everyone in your shared workspace.'
+            : `${contacts.length.toLocaleString()} ${contacts.length === 1 ? 'person' : 'people'} in your shared workspace.`
+        }
+        actions={
+          <>
+            <button onClick={() => setIsImportOpen(true)} className="btn btn-secondary">
+              <Upload className="h-4 w-4" />
+              Import
+            </button>
+            <button onClick={() => setIsAddOpen(true)} className="btn btn-primary">
+              <Plus className="h-4 w-4" />
+              Add contact
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="glass-button px-3.5 py-2 rounded-xl text-xs font-medium text-white flex items-center gap-1.5"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Import CSV / XLSX</span>
-          </button>
-          <button
-            onClick={() => setIsAddSlideOverOpen(true)}
-            className="btn-mustard px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5 stroke-[3]" />
-            <span>Add Contact</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="glass-panel p-4 rounded-2xl border border-white/10 flex items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Filter by name, email, or company..."
-            className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-mustard-500"
-          />
-        </div>
-        <button className="glass-button px-3 py-2 rounded-xl text-xs font-medium text-gray-300 flex items-center gap-1.5">
-          <Filter className="w-3.5 h-3.5" />
-          <span>Filters</span>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 glass-panel rounded-2xl border border-white/10 overflow-hidden">
-          {isLoading ? (
-            <div className="p-12 text-center text-xs text-dark-muted">Loading contacts...</div>
-          ) : contacts.length === 0 ? (
-            <div className="p-16 text-center space-y-3">
-              <Users className="w-10 h-10 text-gray-600 mx-auto" />
-              <div>
-                <h3 className="text-sm font-bold text-white">No contacts in workspace</h3>
-                <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
-                  Click &quot;Add Contact&quot; or &quot;Import CSV / XLSX&quot; above to start populating your outreach list.
-                </p>
-              </div>
-              <div className="pt-2 flex items-center justify-center gap-3">
-                <button
-                  onClick={() => setIsAddSlideOverOpen(true)}
-                  className="btn-mustard px-4 py-2 rounded-xl text-xs font-semibold"
-                >
-                  Add First Contact
+      <section className="card overflow-hidden">
+        {isLoading ? (
+          <p className="px-5 py-16 text-center text-sm text-fg-muted">Loading contacts…</p>
+        ) : contacts.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title="No contacts yet"
+            description="Import a CSV or Excel file from your CRM, LinkedIn or Google Contacts — or add someone manually."
+            action={
+              <>
+                <button onClick={() => setIsImportOpen(true)} className="btn btn-primary">
+                  <Upload className="h-4 w-4" />
+                  Import file
                 </button>
+                <button onClick={() => setIsAddOpen(true)} className="btn btn-secondary">
+                  Add manually
+                </button>
+              </>
+            }
+          />
+        ) : (
+          <>
+            <div className="flex flex-col gap-2 border-b border-line p-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1 sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search name, email, company, tag…"
+                  aria-label="Search contacts"
+                  className="input h-8 pl-9"
+                />
               </div>
+              <select
+                value={stageFilter}
+                onChange={(e) => setStageFilter(e.target.value as typeof stageFilter)}
+                aria-label="Filter by stage"
+                className="input h-8 sm:w-44"
+              >
+                <option value="all">All stages</option>
+                {STAGES.map((s) => (
+                  <option key={s} value={s} className="capitalize">
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </option>
+                ))}
+              </select>
             </div>
-          ) : (
             <ContactsTable
-              contacts={contacts}
+              contacts={filtered}
               selectedId={selectedContact?.id}
               onSelect={setSelectedContact}
               globalFilter={searchTerm}
             />
-          )}
-        </div>
+          </>
+        )}
+      </section>
 
-        <div className="glass-panel p-5 rounded-2xl border border-white/10 space-y-4">
-          <h3 className="text-sm font-bold font-display text-white border-b border-white/10 pb-3">
-            Activity Stream {selectedContact ? `— ${selectedContact.firstName}` : ''}
-          </h3>
-
-          {selectedContact ? (
-            <ActivityTimeline items={activity} />
-          ) : (
-            <div className="p-8 text-center text-xs text-dark-muted">
-              Select a contact from the list to view their activity stream.
-            </div>
-          )}
-        </div>
-      </div>
+      <ContactDetailPanel contact={selectedContact} activity={activity} onClose={() => setSelectedContact(null)} />
 
       <AddContactSlideOver
-        isOpen={isAddSlideOverOpen}
-        onClose={() => setIsAddSlideOverOpen(false)}
+        isOpen={isAddOpen}
+        onClose={() => {
+          setIsAddOpen(false);
+          clearDeepLink();
+        }}
         onSuccess={() => undefined}
       />
 
       <BulkImportModal
-        isOpen={isImportModalOpen}
+        isOpen={isImportOpen}
         onClose={() => {
-          setIsImportModalOpen(false);
-          // Drop ?import=1 so a refresh doesn't reopen the importer.
-          if (searchParams?.get('import')) router.replace('/contacts');
+          setIsImportOpen(false);
+          clearDeepLink();
         }}
         onSuccess={() => undefined}
       />

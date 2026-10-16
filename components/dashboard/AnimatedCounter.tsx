@@ -18,7 +18,7 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   prefix = '',
   suffix = '',
   decimals = 0,
-  duration = 1.6,
+  duration = 0.9,
   className = '',
 }) => {
   const [displayValue, setDisplayValue] = useState<number>(0);
@@ -37,25 +37,11 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
       gsap.to(counterObj.current, {
         val: value,
         duration,
-        ease: 'power4.out',
+        ease: 'power2.out',
         onUpdate: () => {
           setDisplayValue(counterObj.current.val);
         },
       });
-
-      if (spanRef.current) {
-        gsap.fromTo(
-          spanRef.current,
-          { scale: 0.85, filter: 'blur(6px)', opacity: 0.4 },
-          {
-            scale: 1,
-            filter: 'blur(0px)',
-            opacity: 1,
-            duration: duration * 0.7,
-            ease: 'back.out(1.6)',
-          }
-        );
-      }
     });
 
     return () => ctx.revert();

@@ -1,117 +1,90 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Menu, Plus, Search } from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { ConnectionStatusBadge } from './ConnectionStatusBadge';
+import { LogoMark } from '@/components/brand/Logo';
 import { InboxConnectModal } from '../auth/InboxConnectModal';
-import { Search, Bell, Plus, ChevronDown, LogOut, Menu } from 'lucide-react';
-import { signOutUser } from '@/lib/firebase/auth';
 
 interface HeaderProps {
-  title?: string;
-  subtitle?: string;
   /** Opens the sidebar drawer on small screens. */
   onMenuClick?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ title, subtitle, onMenuClick }) => {
-  const { user, organization, inboxStatus } = useAuthStore();
-  const [isModalOpen, setIsModalOpen] = React.useState(false);
-  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
+  const router = useRouter();
+  const { inboxStatus } = useAuthStore();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  const handleSignOut = async () => {
-    setIsMenuOpen(false);
-    await signOutUser();
-    window.location.href = '/login';
+  // "/" focuses search, like most productivity apps.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) && !target.isContentEditable) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    router.push(q ? `/contacts?q=${encodeURIComponent(q)}` : '/contacts');
+    searchRef.current?.blur();
   };
 
   return (
-    <header className="h-16 border-b border-blue-500/10 bg-dark-bg/55 backdrop-blur-xl sticky top-0 z-30 px-4 sm:px-6 flex items-center justify-between gap-3">
-      {/* Title / Search area */}
-      <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-canvas px-3 sm:gap-3 sm:px-6">
+      <button
+        type="button"
+        onClick={onMenuClick}
+        aria-label="Open navigation"
+        className="btn btn-ghost btn-icon btn-sm lg:hidden"
+      >
+        <Menu className="h-4 w-4" />
+      </button>
+      <Link href="/dashboard" aria-label="Mustard home" className="shrink-0 lg:hidden">
+        <LogoMark size={22} />
+      </Link>
+
+      <form onSubmit={handleSearch} className="relative min-w-0 flex-1 sm:max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+        <input
+          ref={searchRef}
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search contacts…"
+          aria-label="Search contacts"
+          className="input h-9 pl-9 sm:h-8 sm:pr-9"
+        />
+        <span className="kbd pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 sm:inline-flex">/</span>
+      </form>
+
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         <button
           type="button"
-          onClick={onMenuClick}
-          aria-label="Open navigation"
-          className="lg:hidden w-9 h-9 rounded-xl glass-button flex items-center justify-center text-gray-200"
+          onClick={() => setIsModalOpen(true)}
+          className="hidden rounded-md sm:block"
+          title="Manage Gmail connection"
         >
-          <Menu className="w-4 h-4" />
-        </button>
-        <div>
-          {title && <h1 className="text-lg font-bold text-white tracking-tight">{title}</h1>}
-          {subtitle && <p className="text-xs text-dark-muted">{subtitle}</p>}
-        </div>
-
-        {/* Global Search Bar Placeholder */}
-        <div className="relative hidden md:block w-72">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search contacts, companies, deals..."
-            className="w-full bg-blue-500/5 border border-blue-400/15 rounded-xl pl-9 pr-4 py-1.5 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-500/40 transition-all"
-          />
-        </div>
-      </div>
-
-      {/* Actions & Profile */}
-      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-        {/* Inbox Connection Indicator (Clickable to manage/reconnect) */}
-        <button onClick={() => setIsModalOpen(true)} className="hover:opacity-80 transition-opacity">
           <ConnectionStatusBadge status={inboxStatus} />
         </button>
-
-        {/* Inbox Connection Modal */}
-        <InboxConnectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
-
-        {/* Quick Add Action Button */}
-        <button className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl btn-mustard text-xs">
-          <Plus className="w-4 h-4 stroke-[3]" />
-          <span>New Outreach</span>
-        </button>
-
-        {/* Notifications */}
-        <button className="hidden sm:flex w-9 h-9 rounded-xl glass-button items-center justify-center text-gray-300 hover:text-white relative">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-cyan-400 shadow-glow-violet" />
-        </button>
-
-        {/* User / Workspace Profile */}
-        <div className="relative pl-2 border-l border-blue-500/15">
-        <button
-          type="button"
-          onClick={() => setIsMenuOpen((open) => !open)}
-          className="flex items-center gap-3 text-left"
-        >
-          <div className="w-8 h-8 rounded-full overflow-hidden border border-blue-400/30 bg-blue-900/50 flex items-center justify-center font-bold text-xs text-blue-200">
-            {user?.photoURL ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
-            ) : (
-              (user?.displayName || user?.email || '?').slice(0, 2).toUpperCase()
-            )}
-          </div>
-          <div className="hidden lg:block text-left">
-            <p className="text-xs font-medium text-white">{user?.displayName || 'Signed in'}</p>
-            <p className="text-[10px] text-dark-muted">{organization?.name || 'Workspace'}</p>
-          </div>
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400 hidden lg:block" />
-        </button>
-
-        {isMenuOpen && (
-          <div className="absolute right-0 top-full mt-2 w-48 glass-panel rounded-xl border border-white/10 p-1 shadow-glass">
-            <div className="px-3 py-2 text-[11px] text-dark-muted truncate">{user?.email}</div>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-200 hover:bg-white/10"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Sign out</span>
-            </button>
-          </div>
-        )}
-        </div>
+        <Link href="/contacts?new=1" className="btn btn-primary btn-sm max-sm:w-9 max-sm:px-0" aria-label="New contact">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">New contact</span>
+        </Link>
       </div>
+
+      <InboxConnectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </header>
   );
 };

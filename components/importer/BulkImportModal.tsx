@@ -10,8 +10,8 @@ import {
   MAX_IMPORT_ROWS,
 } from '@/lib/importer/parser';
 import { importContacts, ImportSummary } from '@/lib/services/imports';
-import { X, UploadCloud, FileText, CheckCircle2, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
-import { useModalReveal } from '@/lib/hooks/useModalReveal';
+import { FileSpreadsheet, CheckCircle2, ArrowRight, Loader2, CircleAlert, Upload } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 interface BulkImportModalProps {
   isOpen: boolean;
@@ -20,19 +20,20 @@ interface BulkImportModalProps {
 }
 
 const FIELD_OPTIONS = [
-  { label: 'Email Address', value: 'email' },
-  { label: 'First Name', value: 'firstName' },
-  { label: 'Last Name', value: 'lastName' },
-  { label: 'Company Name', value: 'companyName' },
-  { label: 'Job Title', value: 'title' },
-  { label: 'Phone Number', value: 'phone' },
+  { label: 'Email', value: 'email' },
+  { label: 'First name', value: 'firstName' },
+  { label: 'Last name', value: 'lastName' },
+  { label: 'Company', value: 'companyName' },
+  { label: 'Job title', value: 'title' },
+  { label: 'Phone', value: 'phone' },
   { label: 'Tags', value: 'tags' },
-  { label: 'Skip / Ignore', value: 'ignore' },
+  { label: 'Don’t import', value: 'ignore' },
 ];
+
+const STEP_LABELS = ['Upload', 'Map columns', 'Import', 'Done'];
 
 export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, organization } = useAuthStore();
-  const { panelRef, backdropRef } = useModalReveal(isOpen);
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [file, setFile] = useState<File | null>(null);
@@ -43,8 +44,6 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  if (!isOpen) return null;
 
   const reset = () => {
     setStep(1);
@@ -134,209 +133,205 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
   const emailMapped = Object.values(columnMapping).includes('email');
   const problemRows = parseResult?.rows.filter((r) => !r.isValid) || [];
 
-  return (
-    <div ref={backdropRef} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-      <div ref={panelRef} className="w-full max-w-2xl glass-panel p-6 md:p-8 rounded-3xl border border-blue-400/20 space-y-6 relative max-h-[90vh] overflow-y-auto shadow-glow-blue">
-        <button
-          onClick={handleClose}
-          disabled={step === 3}
-          aria-label="Close"
-          className="absolute right-4 top-4 text-gray-400 hover:text-white p-1 disabled:opacity-30"
-        >
-          <X className="w-5 h-5" />
+  const footer =
+    step === 2 && parseResult ? (
+      <>
+        <button onClick={reset} className="btn btn-secondary">
+          Back
         </button>
+        <button onClick={handleStartImport} disabled={parseResult.validCount === 0 || !emailMapped} className="btn btn-primary">
+          Import {parseResult.validCount.toLocaleString()} contacts
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      </>
+    ) : step === 4 ? (
+      <button onClick={handleClose} className="btn btn-primary">
+        Done
+      </button>
+    ) : undefined;
 
-        <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-          <div className="p-2.5 rounded-xl bg-blue-500/15 border border-blue-400/30 text-blue-300">
-            <UploadCloud className="w-6 h-6" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold font-display text-white">Bulk Contact Import</h3>
-            <p className="text-xs text-dark-muted">Import CSV or Excel with mapping, validation, and live progress</p>
-          </div>
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      locked={step === 3}
+      size="lg"
+      title="Import contacts"
+      description={`Step ${step} of 4 · ${STEP_LABELS[step - 1]}`}
+      footer={footer}
+    >
+      {error && (
+        <div className="alert alert-error mb-5">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
         </div>
+      )}
 
-        {error && (
-          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {step === 1 && (
-          <div className="space-y-4">
-            <label
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (e.dataTransfer.files[0]) handleFileDrop(e.dataTransfer.files[0]);
-              }}
-              className="border-2 border-dashed border-blue-400/40 hover:border-cyan-400 bg-blue-500/5 hover:bg-blue-500/10 transition-all rounded-3xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer text-center group"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files?.[0]) handleFileDrop(e.target.files[0]);
-                }}
-              />
-              <FileText className="w-10 h-10 text-blue-300 group-hover:scale-110 transition-transform" />
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  {isParsing ? 'Reading file…' : 'Drag & drop a .csv or .xlsx file here, or click to choose'}
-                </p>
-                <p className="text-xs text-dark-muted mt-1">
-                  CSV, XLSX or XLS · first row must be column headers · up to {MAX_IMPORT_ROWS.toLocaleString()} rows
-                </p>
-              </div>
-              {isParsing && <Loader2 className="w-5 h-5 text-cyan-300 animate-spin mt-2" />}
-            </label>
-          </div>
-        )}
-
-        {step === 2 && parseResult && (
-          <div className="space-y-6">
-            <p className="text-xs text-dark-muted">
-              <span className="text-white font-medium">{file?.name}</span> · {parseResult.totalRows.toLocaleString()} rows
-              found
+      {step === 1 && (
+        <label
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files[0]) handleFileDrop(e.dataTransfer.files[0]);
+          }}
+          className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-line-strong bg-canvas px-6 py-12 text-center transition-colors hover:border-accent hover:bg-accent-soft"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="sr-only"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleFileDrop(e.target.files[0]);
+            }}
+          />
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-2 text-fg-muted">
+            {isParsing ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileSpreadsheet className="h-5 w-5" strokeWidth={1.75} />}
+          </span>
+          <div>
+            <p className="text-sm font-medium text-fg">
+              {isParsing ? 'Reading file…' : 'Drop a file here, or click to browse'}
             </p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-center">
-                <span className="text-xl font-bold text-emerald-400 font-display">{parseResult.validCount}</span>
-                <p className="text-[11px] text-emerald-300">Valid Leads</p>
+            <p className="mt-1 text-xs text-fg-muted">
+              CSV, XLSX or XLS · first row must be column headers · up to {MAX_IMPORT_ROWS.toLocaleString()} rows
+            </p>
+          </div>
+          <span className="btn btn-secondary btn-sm pointer-events-none mt-1">
+            <Upload className="h-4 w-4" />
+            Choose file
+          </span>
+        </label>
+      )}
+
+      {step === 2 && parseResult && (
+        <div className="space-y-5">
+          <div className="flex items-center gap-2 text-sm">
+            <FileSpreadsheet className="h-4 w-4 text-fg-subtle" />
+            <span className="font-medium text-fg">{file?.name}</span>
+            <span className="text-fg-muted">· {parseResult.totalRows.toLocaleString()} rows</span>
+          </div>
+
+          <div className="grid grid-cols-3 divide-x divide-line rounded-lg border border-line text-center sm:text-left">
+            {[
+              { label: 'Ready to import', value: parseResult.validCount, tone: 'text-emerald-300' },
+              { label: 'Duplicates in file', value: parseResult.duplicateCount, tone: 'text-amber-300' },
+              { label: 'Missing / invalid email', value: parseResult.errorCount, tone: 'text-rose-300' },
+            ].map((s) => (
+              <div key={s.label} className="px-2 py-3 sm:px-4">
+                <p className={`text-xl font-semibold tabular-nums ${s.tone}`}>{s.value.toLocaleString()}</p>
+                <p className="mt-0.5 text-xs text-fg-muted">{s.label}</p>
               </div>
-              <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-center">
-                <span className="text-xl font-bold text-amber-400 font-display">{parseResult.duplicateCount}</span>
-                <p className="text-[11px] text-amber-300">In-file Duplicates</p>
-              </div>
-              <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-center">
-                <span className="text-xl font-bold text-rose-400 font-display">{parseResult.errorCount}</span>
-                <p className="text-[11px] text-rose-300">Errors</p>
-              </div>
+            ))}
+          </div>
+
+          <div>
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h3 className="text-sm font-semibold font-sans tracking-normal text-fg">Match columns to fields</h3>
+              <span className="text-xs text-fg-subtle">Unmatched columns are saved as custom fields</span>
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Column Header Mapping</h4>
-                <span className="text-[11px] text-dark-muted">Select field targets for each column</span>
-              </div>
-
-              <div className="max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-white/5 divide-y divide-white/5 text-xs">
-                {parseResult.headers.map((header) => {
-                  const currentVal = columnMapping[header] || customFieldKey(header);
-
-                  return (
-                    <div key={header} className="p-3 flex items-center justify-between gap-3">
-                      <span className="text-gray-200 font-medium truncate max-w-[200px]" title={header}>
+            <div className="max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line">
+              {parseResult.headers.map((header) => {
+                const currentVal = columnMapping[header] || customFieldKey(header);
+                const sample = parseResult.rawRows.find((r) => String(r[header] ?? '').trim())?.[header];
+                return (
+                  <div key={header} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3 sm:py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-fg" title={header}>
                         {header}
-                      </span>
-                      <ArrowRight className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-                      <select
-                        value={currentVal}
-                        onChange={(e) => handleMappingChange(header, e.target.value)}
-                        className="bg-dark-bg border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-mustard-400"
-                      >
-                        {FIELD_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                        {!FIELD_OPTIONS.some((o) => o.value === currentVal) && (
-                          <option value={currentVal}>Custom Field ({currentVal.replace(/^custom_/, '')})</option>
-                        )}
-                      </select>
+                      </p>
+                      {sample && <p className="truncate text-xs text-fg-subtle">e.g. {String(sample)}</p>}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {!emailMapped && (
-              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs">
-                No column is mapped to <strong>Email Address</strong>. Pick the column that holds emails above.
-              </div>
-            )}
-
-            {emailMapped && problemRows.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Rows that will be skipped ({problemRows.length})
-                </h4>
-                <div className="max-h-32 overflow-y-auto rounded-xl border border-white/10 bg-white/5 divide-y divide-white/5 text-[11px]">
-                  {problemRows.slice(0, 50).map((r) => (
-                    <div key={r.rowNumber} className="px-3 py-1.5 flex gap-3">
-                      <span className="text-dark-muted font-mono shrink-0">Row {r.rowNumber}</span>
-                      <span className="text-gray-300 truncate">{r.error}</span>
-                    </div>
-                  ))}
-                  {problemRows.length > 50 && (
-                    <div className="px-3 py-1.5 text-dark-muted">…and {problemRows.length - 50} more</div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-              <button onClick={reset} className="glass-button px-4 py-2 text-xs font-medium text-gray-300">
-                Back
-              </button>
-              <button
-                onClick={handleStartImport}
-                disabled={parseResult.validCount === 0}
-                className="btn-mustard px-5 py-2 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <span>Import {parseResult.validCount} Contacts</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+                    <ArrowRight className="hidden h-3.5 w-3.5 shrink-0 text-fg-subtle sm:block" />
+                    <select
+                      value={currentVal}
+                      onChange={(e) => handleMappingChange(header, e.target.value)}
+                      aria-label={`Field for ${header}`}
+                      className="input shrink-0 sm:h-8 sm:w-44"
+                    >
+                      {FIELD_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                      {!FIELD_OPTIONS.some((o) => o.value === currentVal) && (
+                        <option value={currentVal}>Custom: {currentVal.replace(/^custom_/, '')}</option>
+                      )}
+                    </select>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        )}
 
-        {step === 3 && (
-          <div className="py-12 text-center space-y-4">
-            <div className="w-20 h-20 rounded-full border-4 border-white/10 border-t-mustard-500 animate-spin mx-auto flex items-center justify-center">
-              <span className="text-sm font-bold text-white font-mono">{importProgress}%</span>
+          {!emailMapped && (
+            <div className="alert alert-warning">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>No column is matched to Email. Choose the column that contains email addresses.</span>
             </div>
+          )}
+
+          {emailMapped && problemRows.length > 0 && (
             <div>
-              <h4 className="text-lg font-bold text-white font-display">Importing Contacts...</h4>
-              <p className="text-xs text-dark-muted">Saving to your workspace — keep this window open.</p>
+              <h3 className="mb-2 text-sm font-semibold font-sans tracking-normal text-fg">
+                Rows that will be skipped ({problemRows.length.toLocaleString()})
+              </h3>
+              <div className="max-h-32 divide-y divide-line overflow-y-auto rounded-lg border border-line text-xs">
+                {problemRows.slice(0, 50).map((r) => (
+                  <div key={r.rowNumber} className="flex gap-3 px-3 py-1.5">
+                    <span className="w-14 shrink-0 tabular-nums text-fg-subtle">Row {r.rowNumber}</span>
+                    <span className="truncate text-fg-muted">{r.error}</span>
+                  </div>
+                ))}
+                {problemRows.length > 50 && (
+                  <div className="px-3 py-1.5 text-fg-subtle">…and {problemRows.length - 50} more</div>
+                )}
+              </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="py-10 text-center">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin text-accent-fg" />
+          <p className="mt-4 text-sm font-medium text-fg">Importing contacts… {importProgress}%</p>
+          <div className="mx-auto mt-3 h-1.5 w-64 max-w-full overflow-hidden rounded-full bg-surface-3">
+            <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${importProgress}%` }} />
           </div>
-        )}
+          <p className="mt-3 text-xs text-fg-muted">Keep this window open until it finishes.</p>
+        </div>
+      )}
 
-        {step === 4 && (
-          <div className="py-8 text-center space-y-6">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-            <div>
-              <h4 className="text-2xl font-bold text-white font-display">Import Complete</h4>
-              <p className="text-xs text-dark-muted mt-1">
-                Added <span className="text-emerald-400 font-bold">{summary?.imported ?? 0}</span> new contacts
-              </p>
-              {summary && (summary.existingDuplicates > 0 || summary.fileDuplicates > 0 || summary.invalid > 0) && (
-                <p className="text-[11px] text-dark-muted mt-2">
-                  Skipped
-                  {summary.existingDuplicates > 0 && (
-                    <> · <span className="text-amber-400 font-bold">{summary.existingDuplicates}</span> already in workspace</>
-                  )}
-                  {summary.fileDuplicates > 0 && (
-                    <> · <span className="text-amber-400 font-bold">{summary.fileDuplicates}</span> repeated in file</>
-                  )}
-                  {summary.invalid > 0 && (
-                    <> · <span className="text-rose-400 font-bold">{summary.invalid}</span> missing/invalid email</>
-                  )}
-                </p>
+      {step === 4 && (
+        <div className="py-8 text-center">
+          <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-400" strokeWidth={1.5} />
+          <p className="mt-4 text-lg font-semibold text-fg">
+            {(summary?.imported ?? 0).toLocaleString()} contacts added
+          </p>
+          {summary && (summary.existingDuplicates > 0 || summary.fileDuplicates > 0 || summary.invalid > 0) && (
+            <ul className="mx-auto mt-4 max-w-xs space-y-1 text-left text-sm text-fg-muted">
+              {summary.existingDuplicates > 0 && (
+                <li className="flex justify-between">
+                  <span>Already in workspace</span>
+                  <span className="tabular-nums">{summary.existingDuplicates}</span>
+                </li>
               )}
-            </div>
-            <button onClick={handleClose} className="btn-mustard px-6 py-2.5 rounded-xl text-xs font-semibold">
-              Done & View Contacts
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+              {summary.fileDuplicates > 0 && (
+                <li className="flex justify-between">
+                  <span>Repeated in file</span>
+                  <span className="tabular-nums">{summary.fileDuplicates}</span>
+                </li>
+              )}
+              {summary.invalid > 0 && (
+                <li className="flex justify-between">
+                  <span>Missing or invalid email</span>
+                  <span className="tabular-nums">{summary.invalid}</span>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 };

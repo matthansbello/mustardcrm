@@ -5,7 +5,7 @@ import ContactsPageContent from './ContactsPageContent';
 
 export default function ContactsPage() {
   return (
-    <Suspense fallback={<div className="text-xs text-dark-muted p-8">Loading contacts...</div>}>
+    <Suspense fallback={<p className="text-sm text-fg-muted">Loading contacts…</p>}>
       <ContactsPageContent />
     </Suspense>
   );

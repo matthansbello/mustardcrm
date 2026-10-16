@@ -143,18 +143,17 @@ export async function getRepLeaderboard(orgId: string): Promise<RepPerformanceIt
       }
     });
 
-    const result: RepPerformanceItem[] = [];
+    // Active members only (not invited placeholders or deactivated users); fetch stats in parallel.
+    const members = snap.docs.map((d) => d.data() as User).filter((u) => u.status === 'active');
+    const repStats = await Promise.all(
+      members.map((u) => getDoc(doc(db, `organizations/${orgId}/stats`, `rep_${u.id}`)))
+    );
 
-    for (const docSnap of snap.docs) {
-      const u = docSnap.data() as User;
-      if (u.status === 'inactive') continue;
-
-      const repStatsSnap = await getDoc(doc(db, `organizations/${orgId}/stats`, `rep_${u.id}`));
-      const repStats = repStatsSnap.exists() ? repStatsSnap.data() : {};
-      const emailsSent = Number(repStats.emailsSent || 0);
-      const replies = Number(repStats.replies || 0);
-
-      result.push({
+    const result: RepPerformanceItem[] = members.map((u, i) => {
+      const stats = repStats[i].exists() ? repStats[i].data() : {};
+      const emailsSent = Number(stats.emailsSent || 0);
+      const replies = Number(stats.replies || 0);
+      return {
         userId: u.id,
         displayName: u.displayName || u.email,
         email: u.email,
@@ -164,10 +163,12 @@ export async function getRepLeaderboard(orgId: string): Promise<RepPerformanceIt
         meetingsBooked: meetingsByOwner.get(u.id) || 0,
         pipelineValue: pipelineByOwner.get(u.id) || 0,
         inboxStatus: u.inboxStatus || 'disconnected',
-      });
-    }
+      };
+    });
 
-    return result.sort((a, b) => b.emailsSent - a.emailsSent);
+    return result.sort(
+      (a, b) => b.replyRate - a.replyRate || b.emailsSent - a.emailsSent || b.pipelineValue - a.pipelineValue
+    );
   } catch (err) {
     console.error('Error fetching rep leaderboard:', err);
     return [];

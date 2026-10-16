@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { startGmailConnect, updateOrganizationName } from '@/lib/firebase/auth';
 import { AuthGuard } from '@/components/auth/AuthGuard';
-import { Zap, CheckCircle2, ArrowRight, Building, Mail, Users, Chrome, AlertCircle } from 'lucide-react';
+import { Logo } from '@/components/brand/Logo';
+import { CheckCircle2, ArrowRight, Building, Mail, Users, AlertCircle } from 'lucide-react';
 
 function OnboardingContent() {
   const router = useRouter();
@@ -70,160 +71,152 @@ function OnboardingContent() {
     router.push('/dashboard');
   };
 
+  const steps = ['Workspace', 'Gmail', 'Contacts'];
+
   return (
-    <div className="min-h-screen bg-dark-bg flex items-center justify-center p-6 relative overflow-hidden">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-500/15 blur-3xl pointer-events-none animate-glow-pulse" />
-      <div className="absolute bottom-0 right-0 w-[320px] h-[320px] bg-cyan-400/10 blur-3xl pointer-events-none" />
-
-      <div className="w-full max-w-xl glass-panel p-8 md:p-10 rounded-3xl border border-white/10 space-y-8 relative z-10">
-        <div className="flex items-center justify-between border-b border-white/10 pb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 via-blue-600 to-cyan-400 flex items-center justify-center shadow-glow-blue">
-              <Zap className="w-4 h-4 text-white stroke-[2.5]" />
-            </div>
-            <span className="font-display font-bold text-lg text-white">Mustard Setup</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all ${
-                  step === s
-                    ? 'bg-blue-500 text-white shadow-glow-blue'
-                    : step > s
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-white/5 text-gray-500'
-                }`}
-              >
-                {step > s ? <CheckCircle2 className="w-4 h-4" /> : s}
-              </div>
-            ))}
-          </div>
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
+      <div className="w-full max-w-lg">
+        <div className="mb-8 flex items-center justify-between">
+          <Logo size={26} textClassName="text-base" />
+          <ol className="flex items-center gap-1.5" aria-label="Setup progress">
+            {steps.map((label, i) => {
+              const n = (i + 1) as 1 | 2 | 3;
+              return (
+                <li
+                  key={label}
+                  aria-current={step === n ? 'step' : undefined}
+                  title={label}
+                  className={`h-1.5 w-8 rounded-full ${step >= n ? 'bg-accent' : 'bg-surface-3'}`}
+                />
+              );
+            })}
+          </ol>
         </div>
 
-        {error && (
-          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {step === 1 && (
-          <form onSubmit={handleStep1Submit} className="space-y-6">
-            <div className="space-y-2">
-              <span className="text-xs font-semibold text-mustard-400 uppercase tracking-wider">Step 1 of 3</span>
-              <h2 className="text-2xl font-bold font-display text-white">Name your team workspace</h2>
-              <p className="text-xs text-dark-muted">Everyone who signs in joins this workspace and sees the same contacts.</p>
+        <div className="card p-6 sm:p-8">
+          {error && (
+            <div className="alert alert-error mb-5">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
             </div>
+          )}
 
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Workspace / Company Name</label>
-              <div className="relative">
-                <Building className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={orgName}
-                  onChange={(e) => setOrgName(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white focus:outline-none focus:border-mustard-500 focus:ring-1 focus:ring-mustard-500"
-                  placeholder="e.g. Acme Corp"
-                  required
-                />
+          {step === 1 && (
+            <form onSubmit={handleStep1Submit} className="space-y-6">
+              <div>
+                <p className="text-xs font-medium text-fg-subtle">Step 1 of 3</p>
+                <h1 className="mt-1 text-2xl font-semibold text-fg">Name your workspace</h1>
+                <p className="mt-1 text-sm text-fg-muted">
+                  Everyone who signs in joins this workspace and sees the same contacts.
+                </p>
               </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={savingName}
-              className="w-full py-3.5 rounded-xl btn-mustard text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <span>{savingName ? 'Saving...' : 'Continue to Connect Inbox'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <span className="text-xs font-semibold text-mustard-400 uppercase tracking-wider">Step 2 of 3</span>
-              <h2 className="text-2xl font-bold font-display text-white">Connect Gmail Inbox</h2>
-              <p className="text-xs text-dark-muted">
-                Mustard sends sequence emails from your real Gmail or Google Workspace address. Personal @gmail.com accounts are fully supported.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-mustard-500/10 border border-mustard-500/30 flex items-center justify-center text-mustard-400">
-                  <Mail className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">Gmail OAuth Permission Scope</h4>
-                  <p className="text-[11px] text-dark-muted">Requires `gmail.send` and `gmail.readonly` access.</p>
+              <div>
+                <label htmlFor="ob-name" className="label">
+                  Workspace name
+                </label>
+                <div className="relative">
+                  <Building className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+                  <input
+                    id="ob-name"
+                    type="text"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    className="input h-10 pl-9"
+                    placeholder="Acme Inc."
+                    required
+                    autoFocus
+                  />
                 </div>
               </div>
+              <button type="submit" disabled={savingName} className="btn btn-primary btn-lg w-full">
+                {savingName ? 'Saving…' : 'Continue'}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </form>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs font-medium text-fg-subtle">Step 2 of 3</p>
+                <h1 className="mt-1 text-2xl font-semibold text-fg">Connect your Gmail</h1>
+                <p className="mt-1 text-sm text-fg-muted">
+                  Sequences are sent from your own Gmail or Google Workspace address, and replies stop them
+                  automatically.
+                </p>
+              </div>
+
+              <ul className="space-y-3 rounded-lg border border-line bg-surface-2 p-4 text-sm">
+                <li className="flex gap-3">
+                  <Mail className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
+                  <span className="text-fg-muted">
+                    <span className="text-fg">Send email</span> — only the sequence emails you schedule
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <Users className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
+                  <span className="text-fg-muted">
+                    <span className="text-fg">Detect replies</span> — reads message headers only
+                  </span>
+                </li>
+              </ul>
 
               {isConnected ? (
-                <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Inbox successfully authorized!</span>
+                <div className="alert alert-success">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Gmail connected.</span>
                 </div>
               ) : (
-                <button
-                  onClick={handleConnectGmail}
-                  disabled={isConnecting}
-                  className="w-full py-3.5 px-4 rounded-xl btn-mustard text-black font-semibold text-xs flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <Chrome className="w-4 h-4" />
-                  <span>{isConnecting ? 'Redirecting to Google...' : 'Authorize Gmail Connection'}</span>
+                <div className="space-y-2">
+                  <button onClick={handleConnectGmail} disabled={isConnecting} className="btn btn-primary btn-lg w-full">
+                    {isConnecting ? 'Redirecting to Google…' : 'Connect Gmail'}
+                  </button>
+                  <button type="button" onClick={() => setStep(3)} className="btn btn-ghost w-full">
+                    Skip for now
+                  </button>
+                </div>
+              )}
+              {isConnected && (
+                <button onClick={() => setStep(3)} className="btn btn-primary btn-lg w-full">
+                  Continue
+                  <ArrowRight className="h-4 w-4" />
                 </button>
               )}
+            </div>
+          )}
 
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                className="w-full text-center text-[11px] text-dark-muted hover:text-white"
-              >
-                Skip for now — connect later in Settings
+          {step === 3 && (
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs font-medium text-fg-subtle">Step 3 of 3</p>
+                <h1 className="mt-1 text-2xl font-semibold text-fg">You’re all set</h1>
+                <p className="mt-1 text-sm text-fg-muted">
+                  Bring in your contacts now, or head to the dashboard and do it later.
+                </p>
+              </div>
+
+              <div className="grid gap-3">
+                <button
+                  onClick={() => router.push('/contacts?import=1')}
+                  className="flex items-center gap-3 rounded-lg border border-line p-4 text-left transition-colors hover:border-accent hover:bg-accent-soft"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line bg-surface-2">
+                    <Users className="h-4 w-4 text-fg-muted" />
+                  </span>
+                  <span className="flex-1">
+                    <span className="block text-sm font-medium text-fg">Import contacts</span>
+                    <span className="block text-xs text-fg-muted">CSV or Excel — columns are matched automatically.</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-fg-subtle" />
+                </button>
+              </div>
+
+              <button onClick={handleFinish} className="btn btn-secondary btn-lg w-full">
+                Go to dashboard
               </button>
             </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <span className="text-xs font-semibold text-mustard-400 uppercase tracking-wider">Step 3 of 3</span>
-              <h2 className="text-2xl font-bold font-display text-white">Ready to launch</h2>
-              <p className="text-xs text-dark-muted">Import contacts now via CSV or head straight to your dashboard.</p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <button
-                onClick={handleFinish}
-                className="p-5 rounded-2xl glass-panel glass-panel-hover border border-white/10 text-left space-y-2 group"
-              >
-                <Users className="w-5 h-5 text-mustard-400 group-hover:scale-110 transition-transform" />
-                <h4 className="text-sm font-bold text-white">Import Contacts Later</h4>
-                <p className="text-[11px] text-dark-muted">Go to dashboard and add leads manually or via CSV anytime.</p>
-              </button>
-
-              <button
-                onClick={() => router.push('/contacts?import=1')}
-                className="p-5 rounded-2xl glass-panel glass-panel-hover border border-mustard-500/30 bg-mustard-500/10 text-left space-y-2 group"
-              >
-                <Zap className="w-5 h-5 text-mustard-400 group-hover:scale-110 transition-transform" />
-                <h4 className="text-sm font-bold text-white">Import CSV Now</h4>
-                <p className="text-[11px] text-dark-muted">Upload your lead spreadsheet with automatic column mapping.</p>
-              </button>
-            </div>
-
-            <button onClick={handleFinish} className="w-full py-3.5 rounded-xl btn-mustard text-xs font-semibold">
-              Go to Dashboard
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -232,7 +225,7 @@ function OnboardingContent() {
 export default function OnboardingPage() {
   return (
     <AuthGuard>
-      <React.Suspense fallback={<div className="min-h-screen bg-dark-bg flex items-center justify-center text-xs text-dark-muted">Loading...</div>}>
+      <React.Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-canvas text-sm text-fg-muted">Loading…</div>}>
         <OnboardingContent />
       </React.Suspense>
     </AuthGuard>

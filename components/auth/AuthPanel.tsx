@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, CheckCircle2, KeyRound, Mail, Zap } from 'lucide-react';
+import { AlertCircle, CheckCircle2, KeyRound, Mail } from 'lucide-react';
+import { LogoMark } from '@/components/brand/Logo';
 import {
   completeMagicLink,
   completeRedirectSignIn,
@@ -139,19 +140,18 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
     }, false);
   };
 
-  const inputClass =
-    'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-mustard-500 focus:ring-1 focus:ring-mustard-500';
+  const inputClass = 'input h-10';
 
   return (
-    <div className="w-full max-w-md glass-panel p-8 rounded-3xl border border-white/10 space-y-6 relative z-10">
-      <div className="text-center space-y-2">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-400 via-blue-600 to-cyan-400 flex items-center justify-center mx-auto shadow-glow-blue mb-4">
-          <Zap className="w-6 h-6 text-white stroke-[2.5]" />
+    <div className="w-full max-w-sm space-y-6">
+      <div className="space-y-2 text-center">
+        <div className="mb-6 flex justify-center">
+          <LogoMark size={40} />
         </div>
-        <h1 className="text-2xl font-bold font-display text-white">
+        <h1 className="text-2xl font-semibold text-fg">
           {mode === 'signup' ? 'Create your Mustard account' : 'Welcome back to Mustard'}
         </h1>
-        <p className="text-xs text-dark-muted">
+        <p className="text-sm text-fg-muted">
           {mode === 'signup'
             ? 'Join your team’s shared workspace with any sign-in method'
             : 'Sign in with any account you use for Mustard'}
@@ -159,15 +159,15 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="alert alert-error">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {notice && (
-        <div className="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="alert alert-success">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{notice}</span>
         </div>
       )}
@@ -180,7 +180,7 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
               type="button"
               onClick={() => handleOAuth(b.id)}
               disabled={busy}
-              className="py-3 px-4 rounded-xl glass-button border border-white/20 text-white font-medium text-xs flex items-center justify-center gap-2.5 hover:bg-white/10 transition-all shadow-glass disabled:opacity-50"
+              className="btn btn-secondary btn-lg w-full"
             >
               {b.icon}
               <span>{b.label}</span>
@@ -190,15 +190,15 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
       )}
 
       {oauth.length > 0 && emailMethods.length > 0 && (
-        <div className="flex items-center gap-3 text-[11px] text-dark-muted">
-          <div className="h-px flex-1 bg-white/10" />
+        <div className="flex items-center gap-3 text-xs text-fg-subtle">
+          <div className="h-px flex-1 bg-line" />
           <span>or use email</span>
-          <div className="h-px flex-1 bg-white/10" />
+          <div className="h-px flex-1 bg-line" />
         </div>
       )}
 
       {emailMethods.length > 1 && (
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white/5 border border-white/10">
+        <div className="segmented grid w-full grid-cols-2">
           {emailMethods.map((m) => (
             <button
               key={m}
@@ -208,11 +208,10 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
                 setError(null);
                 setNotice(null);
               }}
-              className={`py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                tab === m ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
-              }`}
+              aria-pressed={tab === m}
+              className="justify-center"
             >
-              {m === 'password' ? <KeyRound className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
+              {m === 'password' ? <KeyRound className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
               {m === 'password' ? 'Password' : 'Email link'}
             </button>
           ))}
@@ -252,7 +251,7 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
           />
           {mode === 'login' && (
             <div className="text-right">
-              <button type="button" onClick={handleReset} className="text-[11px] text-dark-muted hover:text-white">
+              <button type="button" onClick={handleReset} className="text-xs text-fg-muted hover:text-fg">
                 Forgot password?
               </button>
             </div>
@@ -260,7 +259,7 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
           <button
             type="submit"
             disabled={busy}
-            className="w-full py-3.5 rounded-xl btn-mustard text-xs font-semibold disabled:opacity-50"
+            className="btn btn-primary btn-lg w-full"
           >
             {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
           </button>
@@ -270,7 +269,7 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
       {emailMethods.includes('emaillink') && tab === 'emaillink' && (
         <form onSubmit={handleMagicLink} className="space-y-3">
           {confirmLinkEmail && (
-            <p className="text-[11px] text-dark-muted">Confirm the email address the sign-in link was sent to.</p>
+            <p className="text-xs text-fg-muted">Confirm the email address the sign-in link was sent to.</p>
           )}
           <input
             type="email"
@@ -284,38 +283,38 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
           <button
             type="submit"
             disabled={busy}
-            className="w-full py-3.5 rounded-xl btn-mustard text-xs font-semibold disabled:opacity-50"
+            className="btn btn-primary btn-lg w-full"
           >
             {busy ? 'Please wait…' : confirmLinkEmail ? 'Continue' : 'Email me a sign-in link'}
           </button>
         </form>
       )}
 
-      <p className="text-center text-xs text-dark-muted">
+      <p className="text-center text-sm text-fg-muted">
         {mode === 'signup' ? (
           <>
             Already have an account?{' '}
-            <Link href="/login" className="text-mustard-400 font-semibold hover:underline">
+            <Link href="/login" className="font-medium text-accent-fg hover:underline">
               Sign in
             </Link>
           </>
         ) : (
           <>
             Don&apos;t have an account?{' '}
-            <Link href="/signup" className="text-mustard-400 font-semibold hover:underline">
+            <Link href="/signup" className="font-medium text-accent-fg hover:underline">
               Sign up
             </Link>
           </>
         )}
       </p>
 
-      <p className="text-center text-[11px] text-dark-muted leading-relaxed">
+      <p className="text-center text-xs leading-relaxed text-fg-subtle">
         By continuing, you agree to our{' '}
-        <Link href="/terms" className="underline hover:text-white">
+        <Link href="/terms" className="underline hover:text-fg">
           Terms of Service
         </Link>{' '}
         and{' '}
-        <Link href="/privacy" className="underline hover:text-white">
+        <Link href="/privacy" className="underline hover:text-fg">
           Privacy Policy
         </Link>
         .

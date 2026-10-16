@@ -1,157 +1,181 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Upload, UserPlus, UserX } from 'lucide-react';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { User } from '@/types';
+import { User, UserRole } from '@/types';
 import { getTeammates } from '@/lib/services/team';
 import { ConnectionStatusBadge } from '@/components/layout/ConnectionStatusBadge';
 import { InviteModal } from '@/components/team/InviteModal';
 import { DeactivateModal } from '@/components/team/DeactivateModal';
 import { BulkInviteModal } from '@/components/team/BulkInviteModal';
-import { UserCheck, UserPlus, Upload, UserX } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Avatar } from '@/components/ui/Avatar';
+
+const ROLE_BADGE: Record<UserRole, string> = {
+  admin: 'badge-violet',
+  manager: 'badge-blue',
+  rep: 'badge-neutral',
+};
 
 export default function TeamPage() {
-  const containerRef = useGsapReveal<HTMLDivElement>({
-    stagger: 0.1,
-    yOffset: 44,
-    scaleFrom: 0.9,
-    blurFrom: 10,
-  });
+  const containerRef = useGsapReveal<HTMLDivElement>();
   const { user, organization } = useAuthStore();
 
   const [teammates, setTeammates] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  const [deactivatingTeammate, setDeactivatingTeammate] = useState<User | null>(null);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
+  const [deactivating, setDeactivating] = useState<User | null>(null);
+
+  const canManage = user?.role === 'admin' || user?.role === 'manager';
 
   const fetchTeammates = async () => {
     if (!organization?.id) return;
-    setIsLoading(true);
     const data = await getTeammates(organization.id);
-    if (data.length === 0 && user) {
-      setTeammates([user]);
-    } else {
-      setTeammates(data);
-    }
+    setTeammates(data.length === 0 && user ? [user] : data);
     setIsLoading(false);
   };
 
   useEffect(() => {
     fetchTeammates();
-  }, [organization?.id, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization?.id, user?.id]);
 
-  const handleTeammateInvited = (newUser: User) => {
-    setTeammates((prev) => [...prev, newUser]);
-  };
-
-  const handleTeammateDeactivated = (deactivatedId: string) => {
-    setTeammates((prev) =>
-      prev.map((t) => (t.id === deactivatedId ? { ...t, inboxStatus: 'disconnected' as const } : t))
-    );
-  };
+  const sorted = [...teammates].sort((a, b) => {
+    if (a.id === user?.id) return -1;
+    if (b.id === user?.id) return 1;
+    return (a.displayName || a.email).localeCompare(b.displayName || b.email);
+  });
 
   return (
     <div ref={containerRef} className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold font-display text-white">Team Management</h1>
-          <p className="text-xs text-dark-muted">Monitor teammate Google Workspace inbox connection health and assign roles.</p>
-        </div>
+      <PageHeader
+        title="Team"
+        description="Everyone in the workspace sees the same contacts, companies and deals."
+        actions={
+          <>
+            <button onClick={() => setIsBulkOpen(true)} className="btn btn-secondary">
+              <Upload className="h-4 w-4" />
+              Bulk invite
+            </button>
+            <button onClick={() => setIsInviteOpen(true)} className="btn btn-primary">
+              <UserPlus className="h-4 w-4" />
+              Invite teammate
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsBulkModalOpen(true)}
-            className="glass-button px-3.5 py-2 rounded-xl text-xs font-medium text-white flex items-center gap-1.5"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Bulk Invite via CSV</span>
-          </button>
-          <button
-            onClick={() => setIsInviteModalOpen(true)}
-            className="btn-mustard px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5"
-          >
-            <UserPlus className="w-3.5 h-3.5 stroke-[3]" />
-            <span>Invite Teammate</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="glass-panel rounded-2xl border border-white/10 overflow-hidden">
+      <section className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-12 text-center text-xs text-dark-muted">Loading team members...</div>
-        ) : teammates.length === 0 ? (
-          <div className="p-12 text-center text-xs text-dark-muted">
-            No team members added yet. Click "Invite Teammate" to add your sales team.
-          </div>
+          <p className="px-5 py-16 text-center text-sm text-fg-muted">Loading team…</p>
         ) : (
-          <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-xs">
-            <thead className="bg-white/5 border-b border-white/10 text-dark-muted font-medium uppercase tracking-wider">
-              <tr>
-                <th className="p-4">Teammate</th>
-                <th className="p-4">Email</th>
-                <th className="p-4">Role</th>
-                <th className="p-4">Inbox Health</th>
-                <th className="p-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5 text-gray-300">
-              {teammates.map((member) => (
-                <tr key={member.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-semibold text-white flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-blue-900/50 border border-blue-400/20 flex items-center justify-center font-bold text-xs text-blue-200">
-                      {member.displayName ? member.displayName.slice(0, 2).toUpperCase() : member.email.slice(0, 2).toUpperCase()}
+          <>
+          <ul className="divide-y divide-line md:hidden">
+            {sorted.map((member) => {
+              const isYou = member.id === user?.id;
+              return (
+                <li key={member.id} className="flex items-start gap-3 px-4 py-3">
+                  <Avatar name={member.displayName} email={member.email} src={member.photoURL} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-fg">
+                      <span className="truncate">{member.displayName || member.email}</span>
+                      {isYou && <span className="badge badge-neutral">You</span>}
+                      {member.status === 'invited' && <span className="badge badge-amber">Invited</span>}
+                    </p>
+                    <p className="truncate text-xs text-fg-subtle">{member.email}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className={`badge capitalize ${ROLE_BADGE[member.role] || 'badge-neutral'}`}>{member.role}</span>
+                      {member.status !== 'invited' && <ConnectionStatusBadge status={member.inboxStatus} />}
                     </div>
-                    <span>{member.displayName || member.email}</span>
-                  </td>
-                  <td className="p-4 text-gray-400 font-mono">{member.email}</td>
-                  <td className="p-4">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-white/10 text-gray-200 border border-white/10 uppercase">
-                      {member.role}
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <ConnectionStatusBadge status={member.inboxStatus} />
-                  </td>
-                  <td className="p-4 text-right">
+                  </div>
+                  {canManage && !isYou && (
                     <button
-                      onClick={() => setDeactivatingTeammate(member)}
-                      title="Deactivate rep & reassign leads"
-                      className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 transition-colors"
+                      onClick={() => setDeactivating(member)}
+                      className="btn btn-ghost btn-icon btn-sm shrink-0 hover:text-rose-300"
+                      aria-label={`Deactivate ${member.displayName || member.email}`}
                     >
-                      <UserX className="w-4 h-4" />
+                      <UserX className="h-4 w-4" />
                     </button>
-                  </td>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="table min-w-[680px]">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Role</th>
+                  <th>Gmail</th>
+                  <th className="w-px" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sorted.map((member) => {
+                  const isYou = member.id === user?.id;
+                  return (
+                    <tr key={member.id} className="hover:bg-surface-2">
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <Avatar name={member.displayName} email={member.email} src={member.photoURL} size="sm" />
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-2 truncate font-medium text-fg">
+                              {member.displayName || member.email}
+                              {isYou && <span className="badge badge-neutral">You</span>}
+                              {member.status === 'invited' && <span className="badge badge-amber">Invited</span>}
+                            </p>
+                            <p className="truncate text-xs text-fg-subtle">{member.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge capitalize ${ROLE_BADGE[member.role] || 'badge-neutral'}`}>{member.role}</span>
+                      </td>
+                      <td>
+                        {member.status === 'invited' ? (
+                          <span className="text-sm text-fg-subtle">—</span>
+                        ) : (
+                          <ConnectionStatusBadge status={member.inboxStatus} />
+                        )}
+                      </td>
+                      <td className="text-right">
+                        {canManage && !isYou && (
+                          <button
+                            onClick={() => setDeactivating(member)}
+                            className="btn btn-ghost btn-icon btn-sm hover:text-rose-300"
+                            aria-label={`Deactivate ${member.displayName || member.email}`}
+                            title="Deactivate"
+                          >
+                            <UserX className="h-4 w-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+          </>
         )}
-      </div>
+      </section>
 
-      {/* Invite Modal */}
       <InviteModal
-        isOpen={isInviteModalOpen}
-        onClose={() => setIsInviteModalOpen(false)}
-        onSuccess={handleTeammateInvited}
+        isOpen={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
+        onSuccess={(u) => setTeammates((prev) => [...prev, u])}
       />
-
-      <BulkInviteModal
-        isOpen={isBulkModalOpen}
-        onClose={() => setIsBulkModalOpen(false)}
-        onSuccess={fetchTeammates}
-      />
-
-      {/* Deactivate & Reassign Modal */}
+      <BulkInviteModal isOpen={isBulkOpen} onClose={() => setIsBulkOpen(false)} onSuccess={fetchTeammates} />
       <DeactivateModal
-        teammate={deactivatingTeammate}
+        teammate={deactivating}
         allTeammates={teammates}
-        isOpen={!!deactivatingTeammate}
-        onClose={() => setDeactivatingTeammate(null)}
-        onSuccess={handleTeammateDeactivated}
+        isOpen={!!deactivating}
+        onClose={() => setDeactivating(null)}
+        onSuccess={(id) => setTeammates((prev) => prev.filter((t) => t.id !== id))}
       />
     </div>
   );

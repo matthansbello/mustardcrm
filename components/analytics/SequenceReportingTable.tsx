@@ -1,8 +1,10 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { Mails } from 'lucide-react';
 import { SequenceAnalyticsItem } from '@/lib/services/analytics';
-import { BarChart3 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 interface SequenceReportingTableProps {
   sequences: SequenceAnalyticsItem[];
@@ -10,49 +12,66 @@ interface SequenceReportingTableProps {
 
 export const SequenceReportingTable: React.FC<SequenceReportingTableProps> = ({ sequences }) => {
   return (
-    <div className="glass-panel rounded-2xl border border-white/10 overflow-hidden">
-      <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-mustard-400" />
-          <h3 className="text-sm font-bold font-display text-white">Campaign Performance Analytics</h3>
-        </div>
-        <span className="text-xs text-dark-muted">Updated real-time</span>
+    <section className="card overflow-hidden">
+      <div className="card-header">
+        <h2 className="card-title">Sequence performance</h2>
       </div>
 
       {sequences.length === 0 ? (
-        <div className="p-8 text-center text-xs text-dark-muted">
-          No campaign analytics yet. Launch a cold email sequence to view performance stats here.
-        </div>
+        <EmptyState
+          compact
+          icon={Mails}
+          title="No sequences yet"
+          description="Open, reply and meeting rates will appear here once your first sequence is sending."
+          action={
+            <Link href="/sequences?new=1" className="btn btn-secondary btn-sm">
+              Create a sequence
+            </Link>
+          }
+        />
       ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-xs">
-          <thead className="bg-white/5 border-b border-white/10 text-dark-muted font-medium uppercase tracking-wider">
-            <tr>
-              <th className="p-4">Sequence Name</th>
-              <th className="p-4">Enrolled</th>
-              <th className="p-4">Sent</th>
-              <th className="p-4">Open Rate</th>
-              <th className="p-4">Reply Rate</th>
-              <th className="p-4">Clicks</th>
-              <th className="p-4 text-right">Meetings</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5 text-gray-300">
-            {sequences.map((seq) => (
-              <tr key={seq.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-semibold text-white">{seq.name}</td>
-                <td className="p-4 font-mono">{seq.enrolled}</td>
-                <td className="p-4 font-mono text-gray-400">{seq.sent}</td>
-                <td className="p-4 font-mono font-semibold text-violet-400">{seq.openRate}%</td>
-                <td className="p-4 font-mono font-bold text-mustard-400">{seq.replyRate}%</td>
-                <td className="p-4 font-mono text-blue-400">{seq.clicked}</td>
-                <td className="p-4 text-right font-mono font-bold text-emerald-400">{seq.meetingsBooked}</td>
+        <>
+        <ul className="divide-y divide-line md:hidden">
+          {sequences.map((seq) => (
+            <li key={seq.id} className="px-4 py-3">
+              <p className="truncate text-sm font-medium text-fg">{seq.name}</p>
+              <p className="mt-1 text-xs tabular-nums text-fg-muted">
+                {seq.sent} sent · {seq.openRate}% opened ·{' '}
+                <span className="text-fg">{seq.replyRate}% replied</span> · {seq.meetingsBooked} meetings
+              </p>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="table min-w-[640px]">
+            <thead>
+              <tr>
+                <th>Sequence</th>
+                <th className="text-right">Enrolled</th>
+                <th className="text-right">Sent</th>
+                <th className="text-right">Opened</th>
+                <th className="text-right">Replied</th>
+                <th className="text-right">Clicks</th>
+                <th className="text-right">Meetings</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sequences.map((seq) => (
+                <tr key={seq.id} className="hover:bg-surface-2">
+                  <td className="font-medium text-fg">{seq.name}</td>
+                  <td className="text-right tabular-nums text-fg-muted">{seq.enrolled}</td>
+                  <td className="text-right tabular-nums text-fg-muted">{seq.sent}</td>
+                  <td className="text-right tabular-nums text-fg">{seq.openRate}%</td>
+                  <td className="text-right tabular-nums font-medium text-fg">{seq.replyRate}%</td>
+                  <td className="text-right tabular-nums text-fg-muted">{seq.clicked}</td>
+                  <td className="text-right tabular-nums text-fg">{seq.meetingsBooked}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+        </>
       )}
-    </div>
+    </section>
   );
 };

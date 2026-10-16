@@ -1,31 +1,46 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import gsap from 'gsap';
 import {
   LayoutDashboard,
   Users,
   Building2,
-  Kanban,
-  Send,
-  UserCheck,
+  SquareKanban,
+  Mails,
+  UsersRound,
   Settings,
-  Sparkles,
-  Zap,
+  LogOut,
+  ChevronsUpDown,
+  X,
+  Mail,
+  type LucideIcon,
 } from 'lucide-react';
-import { useReducedMotion } from '@/lib/hooks/useReducedMotion';
-import { useMagnetic } from '@/lib/hooks/useMagnetic';
+import { useAuthStore } from '@/lib/store/useAuthStore';
+import { signOutUser } from '@/lib/firebase/auth';
+import { Avatar } from '@/components/ui/Avatar';
+import { LogoMark } from '@/components/brand/Logo';
+import { InboxConnectModal } from '@/components/auth/InboxConnectModal';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Contacts', href: '/contacts', icon: Users },
-  { name: 'Companies', href: '/companies', icon: Building2 },
-  { name: 'Deals', href: '/deals', icon: Kanban },
-  { name: 'Sequences', href: '/sequences', icon: Send },
-  { name: 'Team', href: '/team', icon: UserCheck },
-  { name: 'Settings', href: '/settings', icon: Settings },
+const NAV: { label: string; items: { name: string; href: string; icon: LucideIcon }[] }[] = [
+  {
+    label: 'Workspace',
+    items: [
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Contacts', href: '/contacts', icon: Users },
+      { name: 'Companies', href: '/companies', icon: Building2 },
+      { name: 'Deals', href: '/deals', icon: SquareKanban },
+      { name: 'Sequences', href: '/sequences', icon: Mails },
+    ],
+  },
+  {
+    label: 'Manage',
+    items: [
+      { name: 'Team', href: '/team', icon: UsersRound },
+      { name: 'Settings', href: '/settings', icon: Settings },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -36,126 +51,165 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
   const pathname = usePathname();
-  const navRef = useRef<HTMLElement>(null);
-  const prefersReducedMotion = useReducedMotion();
-  const brandRef = useMagnetic<HTMLAnchorElement>(0.2);
+  const { user, organization, inboxStatus } = useAuthStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [inboxModalOpen, setInboxModalOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!navRef.current || prefersReducedMotion) return;
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [menuOpen]);
 
-    const items = navRef.current.querySelectorAll('[data-nav-item]');
-    gsap.fromTo(
-      items,
-      { opacity: 0, x: -28, filter: 'blur(8px)' },
-      {
-        opacity: 1,
-        x: 0,
-        filter: 'blur(0px)',
-        duration: 0.65,
-        stagger: 0.07,
-        ease: 'power4.out',
-        clearProps: 'filter,transform',
-      }
-    );
-  }, [prefersReducedMotion]);
+  const handleSignOut = async () => {
+    setMenuOpen(false);
+    await signOutUser();
+    window.location.href = '/login';
+  };
 
-  useEffect(() => {
-    if (prefersReducedMotion) return;
-    const active = navRef.current?.querySelector('[data-nav-active="true"]');
-    if (!active) return;
-    gsap.fromTo(
-      active,
-      { scale: 0.96 },
-      { scale: 1, duration: 0.45, ease: 'elastic.out(1, 0.5)' }
-    );
-  }, [pathname, prefersReducedMotion]);
+  const dailyCap = organization?.settings?.defaultDailyCapPerMailbox ?? 50;
 
   return (
     <aside
-      className={`w-64 h-screen fixed left-0 top-0 z-50 bg-dark-bg/95 lg:bg-dark-bg/70 backdrop-blur-2xl border-r border-blue-500/10 flex flex-col justify-between p-4 select-none overflow-y-auto transition-transform duration-300 lg:translate-x-0 ${
+      aria-label="Main navigation"
+      className={`fixed left-0 top-0 z-50 flex h-[100dvh] w-[min(18rem,85vw)] flex-col border-r border-line bg-surface transition-transform duration-200 lg:w-60 lg:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
-      <div>
-        <Link
-          ref={brandRef}
-          href="/dashboard"
-          onClick={onClose}
-          className="flex items-center gap-3 px-3 py-3 mb-6 group"
-        >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 via-blue-600 to-cyan-400 flex items-center justify-center shadow-glow-blue group-hover:scale-110 transition-transform duration-300">
-            <Zap className="w-5 h-5 text-white stroke-[2.5]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-display font-bold text-xl tracking-tight text-white">
-                Mustard
-              </span>
-              <span className="text-[10px] font-semibold tracking-wider px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-400/30 uppercase">
-                v1.0
-              </span>
-            </div>
-            <p className="text-[11px] text-dark-muted">CRM & Cold Outreach</p>
+      {/* Brand */}
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">
+        <Link href="/dashboard" onClick={onClose} className="flex min-w-0 flex-1 items-center gap-2.5">
+          <LogoMark size={24} />
+          <div className="min-w-0 leading-tight">
+            <p className="font-display text-[15px] font-semibold text-fg">Mustard</p>
+            <p className="truncate text-[11px] text-fg-subtle">{organization?.name || 'Workspace'}</p>
           </div>
         </Link>
-
-        <nav ref={navRef} className="space-y-1">
-          {navigation.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== '/' && !!pathname?.startsWith(item.href));
-            const Icon = item.icon;
-
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={onClose}
-                data-nav-item
-                data-nav-active={isActive ? 'true' : 'false'}
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  isActive
-                    ? 'bg-gradient-to-r from-blue-500/20 via-blue-500/10 to-cyan-500/10 text-blue-300 border border-blue-400/30 shadow-glow-mustard'
-                    : 'text-gray-400 hover:text-white hover:bg-blue-500/5 border border-transparent'
-                }`}
-              >
-                <Icon
-                  className={`w-4 h-4 transition-colors ${
-                    isActive ? 'text-cyan-300' : 'text-gray-400'
-                  }`}
-                />
-                <span>{item.name}</span>
-                {isActive && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-glow-violet animate-glow-pulse" />
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <button onClick={onClose} aria-label="Close navigation" className="btn btn-ghost btn-icon btn-sm lg:hidden">
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
-      <div className="space-y-3">
-        <div className="p-3.5 rounded-xl glass-panel border border-blue-500/20 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs font-semibold text-white">Gmail sending</span>
-            </div>
-            <span className="text-[10px] text-emerald-400 font-mono">Active</span>
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        {NAV.map((group) => (
+          <div key={group.label} className="mb-5 last:mb-0">
+            <p className="px-2 pb-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-subtle">{group.label}</p>
+            <ul className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+                const Icon = item.icon;
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={onClose}
+                      aria-current={active ? 'page' : undefined}
+                      className={`flex h-10 items-center gap-2.5 rounded-md px-2 text-sm transition-colors lg:h-8 ${
+                        active ? 'bg-surface-3 font-medium text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 ${active ? 'text-accent-fg' : ''}`} strokeWidth={1.75} />
+                      {item.name}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
-          <p className="text-[11px] text-dark-muted leading-relaxed">
-            Cold email throttle set to 50 sends/day per mailbox.
-          </p>
-        </div>
-        <div className="flex justify-center gap-4 text-[11px] text-dark-muted">
-          <Link href="/privacy" onClick={onClose} className="hover:text-white">
-            Privacy
-          </Link>
-          <Link href="/terms" onClick={onClose} className="hover:text-white">
-            Terms
-          </Link>
+        ))}
+      </nav>
+
+      {/* Gmail status */}
+      <div className="px-3 pb-3">
+        <div className="rounded-lg border border-line bg-surface-2 p-3">
+          <div className="flex items-center gap-2">
+            <Mail className="h-4 w-4 text-fg-muted" strokeWidth={1.75} />
+            <span className="text-[13px] font-medium text-fg">Gmail sending</span>
+            <span
+              className={`ml-auto h-2 w-2 rounded-full ${
+                inboxStatus === 'connected'
+                  ? 'bg-emerald-400'
+                  : inboxStatus === 'needs_reauth'
+                    ? 'bg-amber-400'
+                    : 'bg-fg-subtle'
+              }`}
+            />
+          </div>
+          {inboxStatus === 'connected' ? (
+            <p className="mt-1.5 text-xs text-fg-muted">Up to {dailyCap} emails per day from your inbox.</p>
+          ) : (
+            <>
+              <p className="mt-1.5 text-xs text-fg-muted">
+                {inboxStatus === 'needs_reauth'
+                  ? 'Google access expired. Reconnect to keep sending.'
+                  : 'Connect Gmail to send sequences.'}
+              </p>
+              <button onClick={() => setInboxModalOpen(true)} className="btn btn-secondary btn-sm mt-2.5 w-full">
+                {inboxStatus === 'needs_reauth' ? 'Reconnect Gmail' : 'Connect Gmail'}
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Account */}
+      <div ref={menuRef} className="relative border-t border-line p-2">
+        {menuOpen && (
+          <div className="absolute bottom-full left-2 right-2 mb-1 rounded-lg border border-line bg-surface-2 p-1 shadow-popover">
+            <div className="px-2.5 py-2">
+              <p className="truncate text-xs text-fg-muted">{user?.email}</p>
+              <p className="mt-0.5 text-[11px] capitalize text-fg-subtle">{user?.role}</p>
+            </div>
+            <div className="my-1 h-px bg-line" />
+            <Link
+              href="/settings"
+              onClick={() => {
+                setMenuOpen(false);
+                onClose?.();
+              }}
+              className="flex h-8 items-center gap-2 rounded-md px-2.5 text-sm text-fg-muted hover:bg-surface-3 hover:text-fg"
+            >
+              <Settings className="h-4 w-4" strokeWidth={1.75} />
+              Settings
+            </Link>
+            <button
+              onClick={handleSignOut}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-sm text-fg-muted hover:bg-surface-3 hover:text-fg"
+            >
+              <LogOut className="h-4 w-4" strokeWidth={1.75} />
+              Sign out
+            </button>
+            <div className="my-1 h-px bg-line" />
+            <div className="flex gap-3 px-2.5 py-1.5 text-[11px] text-fg-subtle">
+              <Link href="/privacy" className="hover:text-fg">
+                Privacy
+              </Link>
+              <Link href="/terms" className="hover:text-fg">
+                Terms
+              </Link>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-expanded={menuOpen}
+          className="flex w-full items-center gap-2.5 rounded-md p-1.5 text-left hover:bg-surface-2"
+        >
+          <Avatar name={user?.displayName} email={user?.email} src={user?.photoURL} size="sm" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-fg">{user?.displayName || 'Account'}</p>
+            <p className="truncate text-[11px] text-fg-subtle">{user?.email}</p>
+          </div>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-fg-subtle" />
+        </button>
+      </div>
+
+      <InboxConnectModal isOpen={inboxModalOpen} onClose={() => setInboxModalOpen(false)} />
     </aside>
   );
 };

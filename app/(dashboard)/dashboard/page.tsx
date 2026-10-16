@@ -2,12 +2,27 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import {
+  Send,
+  Eye,
+  MessageSquareReply,
+  CalendarCheck,
+  CircleDollarSign,
+  Upload,
+  Plus,
+  CheckCircle2,
+  Circle,
+  ArrowRight,
+  type LucideIcon,
+} from 'lucide-react';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { KpiCard } from '@/components/dashboard/KpiCard';
 import { AnimatedCounter } from '@/components/dashboard/AnimatedCounter';
 import { SequenceReportingTable } from '@/components/analytics/SequenceReportingTable';
 import { RepLeaderboard } from '@/components/analytics/RepLeaderboard';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { InboxConnectModal } from '@/components/auth/InboxConnectModal';
+import { countContacts } from '@/lib/services/contacts';
 import {
   getAggregatedKpis,
   getSequenceAnalytics,
@@ -16,16 +31,24 @@ import {
   SequenceAnalyticsItem,
   RepPerformanceItem,
 } from '@/lib/services/analytics';
-import { Mail, Eye, MessageSquare, Calendar, DollarSign, Plus, Send, Zap } from 'lucide-react';
+
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+interface Stat {
+  label: string;
+  icon: LucideIcon;
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+}
 
 export default function DashboardPage() {
-  const containerRef = useGsapReveal<HTMLDivElement>({
-    stagger: 0.11,
-    yOffset: 48,
-    scaleFrom: 0.9,
-    blurFrom: 12,
-  });
-  const { organization } = useAuthStore();
+  const containerRef = useGsapReveal<HTMLDivElement>();
+  const { user, organization, inboxStatus } = useAuthStore();
 
   const [kpis, setKpis] = useState<DashboardKpis>({
     emailsSent: 0,
@@ -34,121 +57,156 @@ export default function DashboardPage() {
     meetingsBooked: 0,
     pipelineValue: 0,
   });
-
   const [sequences, setSequences] = useState<SequenceAnalyticsItem[]>([]);
   const [reps, setReps] = useState<RepPerformanceItem[]>([]);
+  const [contactCount, setContactCount] = useState<number | null>(null);
+  const [inboxModalOpen, setInboxModalOpen] = useState(false);
 
   useEffect(() => {
-    async function loadData() {
-      if (!organization?.id) return;
-      const dataKpis = await getAggregatedKpis(organization.id);
-      const dataSeq = await getSequenceAnalytics(organization.id);
-      const dataReps = await getRepLeaderboard(organization.id);
-      setKpis(dataKpis);
-      setSequences(dataSeq);
-      setReps(dataReps);
-    }
-    loadData();
+    if (!organization?.id) return;
+    const orgId = organization.id;
+    Promise.all([
+      getAggregatedKpis(orgId),
+      getSequenceAnalytics(orgId),
+      getRepLeaderboard(orgId),
+      countContacts(orgId).catch(() => 0),
+    ]).then(([k, s, r, c]) => {
+      setKpis(k);
+      setSequences(s);
+      setReps(r);
+      setContactCount(c);
+    });
   }, [organization?.id]);
 
+  const stats: Stat[] = [
+    { label: 'Emails sent', icon: Send, value: kpis.emailsSent },
+    { label: 'Open rate', icon: Eye, value: kpis.openRate, suffix: '%', decimals: 1 },
+    { label: 'Reply rate', icon: MessageSquareReply, value: kpis.replyRate, suffix: '%', decimals: 1 },
+    { label: 'Meetings booked', icon: CalendarCheck, value: kpis.meetingsBooked },
+    { label: 'Pipeline value', icon: CircleDollarSign, value: kpis.pipelineValue, prefix: '$' },
+  ];
+
+  const setup = [
+    {
+      done: inboxStatus === 'connected',
+      title: 'Connect your Gmail inbox',
+      body: 'Sequences are sent from your own address.',
+      action: (
+        <button onClick={() => setInboxModalOpen(true)} className="btn btn-secondary btn-sm">
+          Connect
+        </button>
+      ),
+    },
+    {
+      done: (contactCount ?? 0) > 0,
+      title: 'Add your contacts',
+      body: 'Import a CSV or Excel file, or add people one by one.',
+      action: (
+        <Link href="/contacts?import=1" className="btn btn-secondary btn-sm">
+          Import
+        </Link>
+      ),
+    },
+    {
+      done: sequences.length > 0,
+      title: 'Launch your first sequence',
+      body: 'Write a few follow-up steps and let Mustard send them.',
+      action: (
+        <Link href="/sequences?new=1" className="btn btn-secondary btn-sm">
+          Create
+        </Link>
+      ),
+    },
+  ];
+  const completed = setup.filter((s) => s.done).length;
+  const showSetup = contactCount !== null && completed < setup.length;
+
+  const firstName = user?.displayName?.split(' ')[0];
+
   return (
-    <div ref={containerRef} className="space-y-8">
-      {/* Top Banner / Welcome */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-3xl border border-white/10 relative overflow-hidden">
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-blue-500/20 via-cyan-500/5 to-transparent pointer-events-none" />
-        <div className="space-y-1 z-10">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-cyan-300">Live Dashboard</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-          </div>
-          <h1 className="text-2xl font-bold font-display text-white">Outreach Command Center</h1>
-          <p className="text-xs text-dark-muted">Real-time aggregated performance across connected Workspace accounts.</p>
-        </div>
+    <div ref={containerRef} className="space-y-6">
+      <PageHeader
+        title={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
+        description="Here’s how your outreach is performing across the workspace."
+        actions={
+          <>
+            <Link href="/contacts?import=1" className="btn btn-secondary">
+              <Upload className="h-4 w-4" />
+              Import contacts
+            </Link>
+            <Link href="/sequences?new=1" className="btn btn-primary">
+              <Plus className="h-4 w-4" />
+              New sequence
+            </Link>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-3 z-10">
-          <Link href="/sequences" className="btn-mustard px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5">
-            <Send className="w-3.5 h-3.5" />
-            <span>Launch Sequence</span>
-          </Link>
-          <Link href="/contacts" className="glass-button px-4 py-2 rounded-xl text-xs font-medium text-white flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Contacts</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Animated KPI Metric Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="glass-panel glass-panel-hover p-5 rounded-2xl border border-white/10 relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-dark-muted">Emails Sent</span>
-            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500/25 to-cyan-500/10 text-blue-300 border border-blue-400/30">
-              <Mail className="w-4 h-4" />
+      {showSetup && (
+        <section className="card">
+          <div className="card-header">
+            <div>
+              <h2 className="card-title">Get started</h2>
+              <p className="mt-0.5 text-xs text-fg-muted">
+                {completed} of {setup.length} done
+              </p>
+            </div>
+            <div className="hidden h-1.5 w-32 overflow-hidden rounded-full bg-surface-3 sm:block">
+              <div className="h-full bg-accent" style={{ width: `${(completed / setup.length) * 100}%` }} />
             </div>
           </div>
-          <h3 className="text-2xl font-bold font-display text-white tracking-tight">
-            <AnimatedCounter value={kpis.emailsSent} />
-          </h3>
-        </div>
+          <ol className="divide-y divide-line">
+            {setup.map((step) => (
+              <li key={step.title} className="flex items-center gap-3 px-5 py-3.5">
+                {step.done ? (
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" strokeWidth={1.75} />
+                ) : (
+                  <Circle className="h-5 w-5 shrink-0 text-fg-subtle" strokeWidth={1.75} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className={`text-sm font-medium ${step.done ? 'text-fg-muted line-through' : 'text-fg'}`}>
+                    {step.title}
+                  </p>
+                  {!step.done && <p className="text-xs text-fg-muted">{step.body}</p>}
+                </div>
+                {!step.done && step.action}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
-        <div className="glass-panel glass-panel-hover p-5 rounded-2xl border border-white/10 relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-dark-muted">Open Rate</span>
-            <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500/25 to-blue-500/10 text-indigo-300 border border-indigo-400/30">
-              <Eye className="w-4 h-4" />
+      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-5">
+        {stats.map((s) => {
+          const Icon = s.icon;
+          return (
+            <div key={s.label} className="bg-surface px-4 py-4 last:col-span-2 sm:px-5 lg:last:col-span-1">
+              <div className="flex items-center gap-1.5 text-fg-muted">
+                <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                <span className="text-xs font-medium">{s.label}</span>
+              </div>
+              <p className="mt-2 font-display text-xl font-semibold tabular-nums text-fg sm:text-2xl">
+                <AnimatedCounter value={s.value} prefix={s.prefix} suffix={s.suffix} decimals={s.decimals} />
+              </p>
             </div>
-          </div>
-          <h3 className="text-2xl font-bold font-display text-white tracking-tight">
-            <AnimatedCounter value={kpis.openRate} suffix="%" decimals={1} />
-          </h3>
-        </div>
+          );
+        })}
+      </section>
 
-        <div className="glass-panel glass-panel-hover p-5 rounded-2xl border border-white/10 relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-dark-muted">Reply Rate</span>
-            <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 text-emerald-400 border border-emerald-500/30">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-2xl font-bold font-display text-cyan-300 tracking-tight">
-            <AnimatedCounter value={kpis.replyRate} suffix="%" decimals={1} />
-          </h3>
-        </div>
-
-        <div className="glass-panel glass-panel-hover p-5 rounded-2xl border border-white/10 relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-dark-muted">Meetings Booked</span>
-            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10 text-blue-400 border border-blue-500/30">
-              <Calendar className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-2xl font-bold font-display text-white tracking-tight">
-            <AnimatedCounter value={kpis.meetingsBooked} />
-          </h3>
-        </div>
-
-        <div className="glass-panel glass-panel-hover p-5 rounded-2xl border border-white/10 relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-dark-muted">Pipeline Value</span>
-            <div className="p-2 rounded-xl bg-gradient-to-br from-sky-500/25 to-blue-600/10 text-sky-300 border border-sky-400/30">
-              <DollarSign className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-2xl font-bold font-display text-white tracking-tight">
-            <AnimatedCounter value={kpis.pipelineValue} prefix="$" />
-          </h3>
-        </div>
-      </div>
-
-      {/* Main Grid: Campaign Analytics & Rep Leaderboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
           <SequenceReportingTable sequences={sequences} />
         </div>
-        <div>
-          <RepLeaderboard reps={reps} />
-        </div>
+        <RepLeaderboard reps={reps} />
       </div>
+
+      {sequences.length > 0 && (
+        <Link href="/sequences" className="inline-flex items-center gap-1 text-sm text-accent-fg hover:underline">
+          View all sequences <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      )}
+
+      <InboxConnectModal isOpen={inboxModalOpen} onClose={() => setInboxModalOpen(false)} />
     </div>
   );
 }

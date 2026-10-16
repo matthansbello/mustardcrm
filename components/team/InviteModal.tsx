@@ -1,16 +1,23 @@
 'use client';
 
 import React, { useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { UserRole, User } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { inviteTeammate } from '@/lib/services/team';
-import { X, UserPlus, Mail } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 interface InviteModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (newUser: User) => void;
 }
+
+const ROLES: { value: UserRole; label: string; help: string }[] = [
+  { value: 'rep', label: 'Rep', help: 'Works contacts, deals and sequences.' },
+  { value: 'manager', label: 'Manager', help: 'Everything a rep can do, plus managing teammates.' },
+  { value: 'admin', label: 'Admin', help: 'Full control, including workspace settings.' },
+];
 
 export const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { organization, user } = useAuthStore();
@@ -19,21 +26,23 @@ export const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSuc
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen) return null;
+  const close = () => {
+    setError(null);
+    onClose();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !organization?.id || !user?.id) return;
-
     setIsSending(true);
     setError(null);
     try {
       const { user: newUser } = await inviteTeammate(organization.id, email, role, user.id);
       onSuccess(newUser);
       setEmail('');
-      onClose();
+      setRole('rep');
+      close();
     } catch (err) {
-      console.error('Error inviting teammate:', err);
       setError(err instanceof Error ? err.message : 'Invite failed');
     } finally {
       setIsSending(false);
@@ -41,66 +50,72 @@ export const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSuc
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-      <div className="w-full max-w-md glass-panel p-6 rounded-3xl border border-white/10 space-y-6 relative">
-        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-white p-1">
-          <X className="w-4 h-4" />
-        </button>
-
-        <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-          <div className="p-2.5 rounded-xl bg-blue-500/15 border border-blue-400/30 text-blue-300">
-            <UserPlus className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold font-display text-white">Invite Teammate</h3>
-            <p className="text-xs text-dark-muted">Send workspace invitation link to team member</p>
-          </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={close}
+      locked={isSending}
+      title="Invite teammate"
+      description="They’ll join this workspace the first time they sign in with this email."
+      footer={
+        <>
+          <button type="button" onClick={close} className="btn btn-secondary">
+            Cancel
+          </button>
+          <button type="submit" form="invite-form" disabled={isSending} className="btn btn-primary">
+            {isSending ? 'Inviting…' : 'Send invite'}
+          </button>
+        </>
+      }
+    >
+      {error && (
+        <div className="alert alert-error mb-4">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs">
-              {error}
-            </div>
-          )}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-300">Teammate Email Address</label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="jordan@company.com"
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-mustard-500"
-              />
-            </div>
+      )}
+      <form id="invite-form" onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="invite-email" className="label">
+            Email
+          </label>
+          <input
+            id="invite-email"
+            type="email"
+            required
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="jordan@company.com"
+            className="input"
+          />
+        </div>
+        <fieldset>
+          <legend className="label">Role</legend>
+          <div className="space-y-2">
+            {ROLES.filter((r) => r.value !== 'admin' || user?.role === 'admin').map((r) => (
+              <label
+                key={r.value}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                  role === r.value ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value={r.value}
+                  checked={role === r.value}
+                  onChange={() => setRole(r.value)}
+                  className="mt-0.5 accent-[#3b82f6]"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-fg">{r.label}</span>
+                  <span className="block text-xs text-fg-muted">{r.help}</span>
+                </span>
+              </label>
+            ))}
           </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-300">Access Role</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-mustard-500"
-            >
-              <option value="rep">Sales Rep (Owns leads & sequences)</option>
-              <option value="manager">Manager (Views team performance)</option>
-              <option value="admin">Admin (Full workspace control)</option>
-            </select>
-          </div>
-
-          <div className="pt-2 flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="glass-button px-4 py-2 rounded-xl text-xs font-medium text-gray-300">
-              Cancel
-            </button>
-            <button type="submit" disabled={isSending} className="btn-mustard px-5 py-2 rounded-xl text-xs font-semibold disabled:opacity-50">
-              {isSending ? 'Sending Invite...' : 'Send Invite'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </fieldset>
+      </form>
+    </Modal>
   );
 };

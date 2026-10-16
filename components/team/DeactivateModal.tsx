@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { User } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { deactivateTeammate } from '@/lib/services/team';
-import { X, UserX, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 interface DeactivateModalProps {
   teammate: User | null;
@@ -22,81 +23,72 @@ export const DeactivateModal: React.FC<DeactivateModalProps> = ({
   onSuccess,
 }) => {
   const { organization } = useAuthStore();
-  const [reassignedOwnerId, setReassignedOwnerId] = useState('');
+  const [reassignTo, setReassignTo] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen || !teammate) return null;
+  if (!teammate) return null;
 
-  const eligibleOwners = allTeammates.filter((u) => u.id !== teammate.id);
+  const eligibleOwners = allTeammates.filter((u) => u.id !== teammate.id && u.status !== 'invited');
+
+  const close = () => {
+    setError(null);
+    setReassignTo('');
+    onClose();
+  };
 
   const handleDeactivate = async () => {
-    if (!reassignedOwnerId) return;
-
+    if (!reassignTo || !organization?.id) return;
     setIsProcessing(true);
+    setError(null);
     try {
-      await deactivateTeammate(organization?.id || 'demo-org-1', teammate.id, reassignedOwnerId);
+      await deactivateTeammate(organization.id, teammate.id, reassignTo);
       onSuccess(teammate.id);
-      onClose();
+      close();
     } catch (err) {
-      console.error('Error deactivating teammate:', err);
+      const message = err instanceof Error ? err.message : 'Could not deactivate';
+      setError(/permission/i.test(message) ? 'Only admins and managers can deactivate teammates.' : message);
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-      <div className="w-full max-w-md glass-panel p-6 rounded-3xl border border-white/10 space-y-6 relative">
-        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-white p-1">
-          <X className="w-4 h-4" />
-        </button>
-
-        <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-          <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/30 text-rose-400">
-            <UserX className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold font-display text-white">Deactivate Teammate</h3>
-            <p className="text-xs text-dark-muted">Reassign contacts and deals for {teammate.displayName}</p>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-          <p>
-            Deactivating will revoke inbox access for <span className="font-bold text-white">{teammate.email}</span>. You must select a team member to take over their assigned contacts and pipeline deals.
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-300">Reassign Contacts & Deals To *</label>
-          <select
-            value={reassignedOwnerId}
-            onChange={(e) => setReassignedOwnerId(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-mustard-500"
-          >
-            <option value="">-- Select Teammate --</option>
-            {eligibleOwners.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.displayName} ({o.email})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="pt-2 flex justify-end gap-3">
-          <button onClick={onClose} className="glass-button px-4 py-2 rounded-xl text-xs font-medium text-gray-300">
+    <Modal
+      isOpen={isOpen}
+      onClose={close}
+      locked={isProcessing}
+      title={`Deactivate ${teammate.displayName || teammate.email}?`}
+      description="They’ll lose access immediately and their Gmail will stop sending."
+      footer={
+        <>
+          <button onClick={close} className="btn btn-secondary">
             Cancel
           </button>
-          <button
-            onClick={handleDeactivate}
-            disabled={!reassignedOwnerId || isProcessing}
-            className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <span>{isProcessing ? 'Reassigning & Deactivating...' : 'Reassign & Deactivate'}</span>
+          <button onClick={handleDeactivate} disabled={!reassignTo || isProcessing} className="btn btn-danger">
+            {isProcessing ? 'Deactivating…' : 'Deactivate'}
           </button>
+        </>
+      }
+    >
+      {error && (
+        <div className="alert alert-error mb-4">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
         </div>
-      </div>
-    </div>
+      )}
+      <label htmlFor="reassign" className="label">
+        Give their contacts and deals to
+      </label>
+      <select id="reassign" value={reassignTo} onChange={(e) => setReassignTo(e.target.value)} className="input">
+        <option value="">Choose a teammate…</option>
+        {eligibleOwners.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.displayName} ({o.email})
+          </option>
+        ))}
+      </select>
+      <p className="hint">Everything they own moves to this person. Shared workspace data stays visible to everyone.</p>
+    </Modal>
   );
 };

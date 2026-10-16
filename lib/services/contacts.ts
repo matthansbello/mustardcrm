@@ -10,6 +10,7 @@ import {
   onSnapshot,
   orderBy,
   limit,
+  getCountFromServer,
   Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
@@ -201,4 +202,10 @@ export async function getContactById(
 ): Promise<Contact | null> {
   const snap = await getDoc(doc(db, `organizations/${orgId}/contacts`, contactId));
   return snap.exists() ? (snap.data() as Contact) : null;
+}
+
+/** Number of contacts in the workspace (server-side count, no documents downloaded). */
+export async function countContacts(orgId: string): Promise<number> {
+  const snap = await getCountFromServer(collection(db, `organizations/${orgId}/contacts`));
+  return snap.data().count;
 }

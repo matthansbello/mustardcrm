@@ -4,10 +4,8 @@ import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import { useReducedMotion } from './useReducedMotion';
 
-/**
- * Aggressive modal / slide-over entrance (scale + blur + rise).
- */
-export function useModalReveal(isOpen: boolean) {
+/** Modal / slide-over entrance: backdrop fade + panel fade with a slight lift. */
+export function useModalReveal(isOpen: boolean, variant: 'center' | 'right' = 'center') {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const prefersReducedMotion = useReducedMotion();
@@ -17,31 +15,19 @@ export function useModalReveal(isOpen: boolean) {
 
     const ctx = gsap.context(() => {
       if (backdropRef.current) {
-        gsap.fromTo(
-          backdropRef.current,
-          { opacity: 0 },
-          { opacity: 1, duration: 0.35, ease: 'power2.out' }
-        );
+        gsap.fromTo(backdropRef.current, { opacity: 0 }, { opacity: 1, duration: 0.18, ease: 'power1.out' });
       }
       if (panelRef.current) {
         gsap.fromTo(
           panelRef.current,
-          { opacity: 0, y: 40, scale: 0.92, filter: 'blur(12px)' },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            filter: 'blur(0px)',
-            duration: 0.55,
-            ease: 'power4.out',
-            clearProps: 'filter',
-          }
+          variant === 'right' ? { opacity: 0, x: 24 } : { opacity: 0, y: 8, scale: 0.99 },
+          { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.22, ease: 'power2.out', clearProps: 'transform,opacity' }
         );
       }
     });
 
     return () => ctx.revert();
-  }, [isOpen, prefersReducedMotion]);
+  }, [isOpen, prefersReducedMotion, variant]);
 
   return { panelRef, backdropRef };
 }

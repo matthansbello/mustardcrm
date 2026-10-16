@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import gsap from 'gsap';
+import React, { useEffect, useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { checkDuplicateEmail, createContact } from '@/lib/services/contacts';
 import { Contact } from '@/types';
-import { useReducedMotion } from '@/lib/hooks/useReducedMotion';
-import { X, UserPlus, AlertTriangle, Check, Building, Mail, User, Briefcase, Phone, Tag } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 interface AddContactSlideOverProps {
   isOpen: boolean;
@@ -14,71 +13,40 @@ interface AddContactSlideOverProps {
   onSuccess: (newContact: Contact) => void;
 }
 
-export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
-  isOpen,
-  onClose,
-  onSuccess,
-}) => {
+const EMPTY_FORM = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  title: '',
+  companyName: '',
+  phone: '',
+  tags: '',
+};
+
+export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, organization } = useAuthStore();
-  const prefersReducedMotion = useReducedMotion();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
 
-  const emptyForm = {
-    firstName: '',
-    lastName: '',
-    email: '',
-    title: '',
-    companyName: '',
-    phone: '',
-    tags: 'lead, inbound',
-  };
-  const [formData, setFormData] = useState(emptyForm);
+  const [formData, setFormData] = useState(EMPTY_FORM);
   const [saveError, setSaveError] = useState<string | null>(null);
-
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [shake, setShake] = useState(false);
+
+  const set = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setFormData((f) => ({ ...f, [key]: e.target.value }));
 
   useEffect(() => {
-    if (!isOpen || prefersReducedMotion) return;
-    const ctx = gsap.context(() => {
-      if (backdropRef.current) {
-        gsap.fromTo(backdropRef.current, { opacity: 0 }, { opacity: 1, duration: 0.3 });
-      }
-      if (panelRef.current) {
-        gsap.fromTo(
-          panelRef.current,
-          { x: '100%', filter: 'blur(8px)' },
-          { x: '0%', filter: 'blur(0px)', duration: 0.55, ease: 'power4.out', clearProps: 'filter' }
-        );
-      }
-    });
-    return () => ctx.revert();
-  }, [isOpen, prefersReducedMotion]);
-
-  useEffect(() => {
-    if (!formData.email.includes('@')) {
+    if (!formData.email.includes('@') || !organization?.id) {
       setIsDuplicate(false);
       return;
     }
-
     const timer = setTimeout(async () => {
       setIsCheckingDuplicate(true);
-      const isDup = await checkDuplicateEmail(organization?.id || '', formData.email);
-      setIsDuplicate(isDup);
-      if (isDup) {
-        setShake(true);
-        setTimeout(() => setShake(false), 500);
-      }
+      setIsDuplicate(await checkDuplicateEmail(organization.id, formData.email));
       setIsCheckingDuplicate(false);
     }, 400);
-
     return () => clearTimeout(timer);
   }, [formData.email, organization?.id]);
-
-  if (!isOpen) return null;
 
   const handleClose = () => {
     setSaveError(null);
@@ -116,7 +84,7 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
         lifecycleStage: 'lead',
         customFields: {},
       });
-      setFormData(emptyForm);
+      setFormData(EMPTY_FORM);
       onSuccess(newContact);
       handleClose();
     } catch (err) {
@@ -133,165 +101,108 @@ export const AddContactSlideOver: React.FC<AddContactSlideOverProps> = ({
   };
 
   return (
-    <div
-      ref={backdropRef}
-      className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm flex justify-end"
-    >
-      <div
-        ref={panelRef}
-        className="w-full max-w-md bg-dark-bg/95 border-l border-blue-400/20 h-full p-6 space-y-6 flex flex-col justify-between overflow-y-auto shadow-glow-blue"
-      >
-        <div>
-          <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-400/30 text-blue-300">
-                <UserPlus className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold font-display text-white">Add New Contact</h3>
-                <p className="text-xs text-dark-muted">Manual lead entry with real-time deduping</p>
-              </div>
-            </div>
-            <button onClick={handleClose} aria-label="Close" className="text-gray-400 hover:text-white p-1">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {saveError && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{saveError}</span>
-            </div>
-          )}
-
-          <form id="add-contact-form" onSubmit={handleSubmit} className="space-y-4">
-            <div className={`space-y-1.5 ${shake ? 'animate-pulse' : ''}`}>
-              <label className="text-xs font-medium text-gray-300">Email Address *</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="email"
-                  required
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className={`w-full bg-white/5 border rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none transition-all ${
-                    isDuplicate
-                      ? 'border-rose-500 ring-2 ring-rose-500/20'
-                      : 'border-white/10 focus:border-blue-400'
-                  }`}
-                  placeholder="alex.smith@company.com"
-                />
-              </div>
-              {isDuplicate && (
-                <p className="text-[11px] text-rose-400 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> Duplicate email already exists in workspace
-                </p>
-              )}
-              {isCheckingDuplicate && (
-                <p className="text-[11px] text-dark-muted">Checking duplicates...</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-300">First Name *</label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    required
-                    value={formData.firstName}
-                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-300">Last Name</label>
-                <input
-                  type="text"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-300">Company</label>
-              <div className="relative">
-                <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={formData.companyName}
-                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-300">Title</label>
-                <div className="relative">
-                  <Briefcase className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-300">Phone</label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-300">Tags</label>
-              <div className="relative">
-                <Tag className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={formData.tags}
-                  onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                  placeholder="lead, inbound"
-                />
-              </div>
-            </div>
-          </form>
-        </div>
-
-        <div className="pt-4 border-t border-white/10 flex gap-3">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="glass-button flex-1 py-2.5 rounded-xl text-xs font-medium text-gray-300"
-          >
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      variant="right"
+      title="Add contact"
+      description="Everyone in the workspace will be able to see this contact."
+      locked={isSaving}
+      footer={
+        <>
+          <button type="button" onClick={handleClose} className="btn btn-secondary">
             Cancel
           </button>
-          <button
-            type="submit"
-            form="add-contact-form"
-            disabled={isDuplicate || isSaving}
-            className="btn-mustard flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
-          >
-            <Check className="w-3.5 h-3.5" />
-            {isSaving ? 'Saving...' : 'Save Contact'}
+          <button type="submit" form="add-contact-form" disabled={isDuplicate || isSaving} className="btn btn-primary">
+            {isSaving ? 'Saving…' : 'Save contact'}
           </button>
+        </>
+      }
+    >
+      {saveError && (
+        <div className="alert alert-error mb-5">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{saveError}</span>
         </div>
-      </div>
-    </div>
+      )}
+
+      <form id="add-contact-form" onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="ac-email" className="label">
+            Email <span className="text-rose-400">*</span>
+          </label>
+          <input
+            id="ac-email"
+            type="email"
+            required
+            autoFocus
+            value={formData.email}
+            onChange={set('email')}
+            placeholder="alex@company.com"
+            aria-invalid={isDuplicate}
+            className={`input ${isDuplicate ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500/20' : ''}`}
+          />
+          {isDuplicate ? (
+            <p className="hint flex items-center gap-1 text-rose-300">
+              <CircleAlert className="h-3.5 w-3.5" /> A contact with this email already exists.
+            </p>
+          ) : isCheckingDuplicate ? (
+            <p className="hint">Checking for duplicates…</p>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="ac-first" className="label">
+              First name <span className="text-rose-400">*</span>
+            </label>
+            <input id="ac-first" type="text" required value={formData.firstName} onChange={set('firstName')} className="input" />
+          </div>
+          <div>
+            <label htmlFor="ac-last" className="label">
+              Last name
+            </label>
+            <input id="ac-last" type="text" value={formData.lastName} onChange={set('lastName')} className="input" />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="ac-company" className="label">
+            Company
+          </label>
+          <input id="ac-company" type="text" value={formData.companyName} onChange={set('companyName')} className="input" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="ac-title" className="label">
+              Job title
+            </label>
+            <input id="ac-title" type="text" value={formData.title} onChange={set('title')} className="input" />
+          </div>
+          <div>
+            <label htmlFor="ac-phone" className="label">
+              Phone
+            </label>
+            <input id="ac-phone" type="tel" value={formData.phone} onChange={set('phone')} className="input" />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="ac-tags" className="label">
+            Tags
+          </label>
+          <input
+            id="ac-tags"
+            type="text"
+            value={formData.tags}
+            onChange={set('tags')}
+            placeholder="e.g. inbound, conference"
+            className="input"
+          />
+          <p className="hint">Separate tags with commas.</p>
+        </div>
+      </form>
+    </Modal>
   );
 };

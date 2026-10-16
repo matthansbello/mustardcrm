@@ -1,9 +1,11 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { UsersRound } from 'lucide-react';
 import { RepPerformanceItem } from '@/lib/services/analytics';
-import { ConnectionStatusBadge } from '@/components/layout/ConnectionStatusBadge';
-import { Trophy, Award } from 'lucide-react';
+import { Avatar } from '@/components/ui/Avatar';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 interface RepLeaderboardProps {
   reps: RepPerformanceItem[];
@@ -11,58 +13,48 @@ interface RepLeaderboardProps {
 
 export const RepLeaderboard: React.FC<RepLeaderboardProps> = ({ reps }) => {
   return (
-    <div className="glass-panel rounded-2xl border border-white/10 overflow-hidden">
-      <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Trophy className="w-4 h-4 text-mustard-400" />
-          <h3 className="text-sm font-bold font-display text-white">Sales Rep Leaderboard</h3>
-        </div>
-        <span className="text-xs text-dark-muted font-mono">Ranked by Reply Rate</span>
+    <section className="card overflow-hidden">
+      <div className="card-header">
+        <h2 className="card-title">Team leaderboard</h2>
+        <span className="text-xs text-fg-subtle">By reply rate</span>
       </div>
 
       {reps.length === 0 ? (
-        <div className="p-8 text-center text-xs text-dark-muted">
-          No team performance data yet. Invite sales reps to track leaderboard metrics.
-        </div>
+        <EmptyState
+          compact
+          icon={UsersRound}
+          title="No team activity yet"
+          description="Invite teammates to compare reply rates and pipeline."
+          action={
+            <Link href="/team" className="btn btn-secondary btn-sm">
+              Invite teammates
+            </Link>
+          }
+        />
       ) : (
-        <div className="divide-y divide-white/5">
-          {reps.map((rep, idx) => (
-            <div key={rep.userId} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors">
-              <div className="flex items-center gap-3.5">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs font-mono ${
-                  idx === 0 ? 'bg-blue-500 text-white shadow-glow-blue' : 'bg-white/10 text-gray-300'
-                }`}>
-                  {idx + 1}
-                </div>
-
-                <div>
-                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span>{rep.displayName}</span>
-                    {idx === 0 && <Award className="w-3.5 h-3.5 text-mustard-400" />}
-                  </h4>
-                  <p className="text-[11px] text-dark-muted font-mono">{rep.email}</p>
-                </div>
+        <ol className="divide-y divide-line">
+          {reps.slice(0, 5).map((rep, idx) => (
+            <li key={rep.userId} className="flex items-center gap-3 px-5 py-3">
+              <span className="w-4 text-xs tabular-nums text-fg-subtle">{idx + 1}</span>
+              <Avatar name={rep.displayName} email={rep.email} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-fg">{rep.displayName}</p>
+                <p className="truncate text-xs text-fg-subtle">
+                  {rep.emailsSent.toLocaleString()} sent · ${rep.pipelineValue.toLocaleString()} pipeline
+                </p>
               </div>
-
-              <div className="flex items-center gap-6 text-xs">
-                <div className="text-right">
-                  <p className="text-dark-muted text-[10px]">Reply Rate</p>
-                  <p className="font-bold text-mustard-400 font-mono">{rep.replyRate}%</p>
-                </div>
-
-                <div className="text-right hidden sm:block">
-                  <p className="text-dark-muted text-[10px]">Pipeline Value</p>
-                  <p className="font-bold text-white font-mono">${rep.pipelineValue.toLocaleString()}</p>
-                </div>
-
-                <div className="hidden md:block">
-                  <ConnectionStatusBadge status={rep.inboxStatus} />
-                </div>
-              </div>
-            </div>
+              <span className="text-sm font-medium tabular-nums text-fg">{rep.replyRate}%</span>
+            </li>
           ))}
+        </ol>
+      )}
+      {reps.length > 5 && (
+        <div className="border-t border-line px-5 py-3">
+          <Link href="/team" className="text-sm text-accent-fg hover:underline">
+            View all {reps.length} teammates
+          </Link>
         </div>
       )}
-    </div>
+    </section>
   );
 };

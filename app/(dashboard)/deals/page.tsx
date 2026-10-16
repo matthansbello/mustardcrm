@@ -1,35 +1,30 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { CircleAlert, Plus } from 'lucide-react';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { Deal } from '@/types';
+import { Deal, DealStage } from '@/types';
 import { getDeals, createDeal } from '@/lib/services/deals';
-import { KanbanBoard } from '@/components/deals/KanbanBoard';
-import { Plus, Kanban, X } from 'lucide-react';
+import { KanbanBoard, DEAL_STAGES } from '@/components/deals/KanbanBoard';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Modal } from '@/components/ui/Modal';
+
+const EMPTY = { title: '', value: '', stage: 'new' as DealStage };
 
 export default function DealsPage() {
-  const containerRef = useGsapReveal<HTMLDivElement>({
-    stagger: 0.1,
-    yOffset: 48,
-    scaleFrom: 0.9,
-    blurFrom: 12,
-  });
+  const containerRef = useGsapReveal<HTMLDivElement>();
   const { user, organization } = useAuthStore();
 
   const [deals, setDeals] = useState<Deal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-
-  const [newDeal, setNewDeal] = useState({
-    title: '',
-    value: 10000,
-    contactId: '',
-  });
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDeals = async () => {
     if (!organization?.id) return;
-    setIsLoading(true);
     const data = await getDeals(organization.id);
     setDeals(data);
     setIsLoading(false);
@@ -37,112 +32,140 @@ export default function DealsPage() {
 
   useEffect(() => {
     fetchDeals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id]);
 
-  const handleCreateDeal = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDeal.title || !organization?.id) return;
+  const open = deals.filter((d) => d.stage !== 'won' && d.stage !== 'lost');
+  const openValue = open.reduce((sum, d) => sum + (d.value || 0), 0);
 
+  const closeModal = () => {
+    setIsAddOpen(false);
+    setError(null);
+    setForm(EMPTY);
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title.trim() || !organization?.id) return;
+    setSaving(true);
+    setError(null);
     try {
       const created = await createDeal(organization.id, {
-        title: newDeal.title,
-        value: Number(newDeal.value) || 0,
-        contactId: newDeal.contactId || 'c_unlinked',
-        stage: 'new',
-        ownerId: user?.id || user?.email || 'unassigned',
+        title: form.title.trim(),
+        value: Number(form.value) || 0,
+        contactId: 'c_unlinked',
+        stage: form.stage,
+        ownerId: user?.id || 'unassigned',
       });
-
       setDeals((prev) => [...prev, created]);
-      setNewDeal({ title: '', value: 10000, contactId: '' });
-      setIsAddModalOpen(false);
+      closeModal();
     } catch (err) {
-      console.error('Failed to create deal:', err);
+      setError(err instanceof Error ? err.message : 'Could not save deal.');
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <div ref={containerRef} className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold font-display text-white">Deal Pipeline</h1>
-          <p className="text-xs text-dark-muted">Kanban board automatically moving stages on prospect email replies.</p>
-        </div>
-
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="btn-mustard px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5"
-        >
-          <Plus className="w-3.5 h-3.5 stroke-[3]" />
-          <span>New Deal</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Deals"
+        description={
+          isLoading
+            ? 'Your sales pipeline.'
+            : `${open.length} open ${open.length === 1 ? 'deal' : 'deals'} worth $${openValue.toLocaleString()}. Drag cards between stages.`
+        }
+        actions={
+          <button onClick={() => setIsAddOpen(true)} className="btn btn-primary">
+            <Plus className="h-4 w-4" />
+            New deal
+          </button>
+        }
+      />
 
       {isLoading ? (
-        <div className="glass-panel p-12 rounded-2xl border border-white/10 text-center text-xs text-dark-muted">
-          Loading pipeline deals...
-        </div>
+        <div className="card px-5 py-16 text-center text-sm text-fg-muted">Loading pipeline…</div>
       ) : (
         <KanbanBoard deals={deals} onDealUpdated={fetchDeals} />
       )}
 
-      {/* New Deal Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-          <div className="w-full max-w-md glass-panel p-6 rounded-3xl border border-white/10 space-y-6 relative">
-            <button onClick={() => setIsAddModalOpen(false)} className="absolute right-4 top-4 text-gray-400 hover:text-white p-1">
-              <X className="w-4 h-4" />
+      <Modal
+        isOpen={isAddOpen}
+        onClose={closeModal}
+        locked={saving}
+        title="New deal"
+        footer={
+          <>
+            <button type="button" onClick={closeModal} className="btn btn-secondary">
+              Cancel
             </button>
-
-            <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-              <div className="p-2.5 rounded-xl bg-blue-500/15 border border-blue-400/30 text-blue-300">
-                <Kanban className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold font-display text-white">Create New Deal</h3>
-                <p className="text-xs text-dark-muted">Add a deal opportunity to your pipeline</p>
+            <button type="submit" form="new-deal-form" disabled={saving} className="btn btn-primary">
+              {saving ? 'Saving…' : 'Create deal'}
+            </button>
+          </>
+        }
+      >
+        {error && (
+          <div className="alert alert-error mb-4">
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+        <form id="new-deal-form" onSubmit={handleCreate} className="space-y-4">
+          <div>
+            <label htmlFor="deal-title" className="label">
+              Deal name <span className="text-rose-400">*</span>
+            </label>
+            <input
+              id="deal-title"
+              required
+              autoFocus
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              placeholder="Acme — annual plan"
+              className="input"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="deal-value" className="label">
+                Value (USD)
+              </label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">$</span>
+                <input
+                  id="deal-value"
+                  type="number"
+                  min={0}
+                  step="any"
+                  inputMode="decimal"
+                  value={form.value}
+                  onChange={(e) => setForm({ ...form, value: e.target.value })}
+                  placeholder="10,000"
+                  className="input pl-7"
+                />
               </div>
             </div>
-
-            <form onSubmit={handleCreateDeal} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-300">Deal Title *</label>
-                <input
-                  type="text"
-                  required
-                  value={newDeal.title}
-                  onChange={(e) => setNewDeal({ ...newDeal, title: e.target.value })}
-                  placeholder="Acme Enterprise License"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-300">Deal Value ($)</label>
-                <input
-                  type="number"
-                  required
-                  value={newDeal.value}
-                  onChange={(e) => setNewDeal({ ...newDeal, value: Number(e.target.value) })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-400"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="glass-button px-4 py-2 rounded-xl text-xs font-medium text-gray-300"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-mustard px-5 py-2 rounded-xl text-xs font-semibold">
-                  Save Deal
-                </button>
-              </div>
-            </form>
+            <div>
+              <label htmlFor="deal-stage" className="label">
+                Stage
+              </label>
+              <select
+                id="deal-stage"
+                value={form.stage}
+                onChange={(e) => setForm({ ...form, stage: e.target.value as DealStage })}
+                className="input"
+              >
+                {DEAL_STAGES.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
     </div>
   );
 }

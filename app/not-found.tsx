@@ -1,26 +1,20 @@
-'use client';
-
-import React from 'react';
 import Link from 'next/link';
-import { AlertCircle, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
+import { LogoMark } from '@/components/brand/Logo';
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-dark-bg flex items-center justify-center p-6 text-white text-center">
-      <div className="max-w-md glass-panel p-8 rounded-3xl border border-white/10 space-y-6">
-        <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
-          <AlertCircle className="w-8 h-8" />
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="max-w-sm text-center">
+        <div className="flex justify-center">
+          <LogoMark size={36} />
         </div>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold font-display">404 - Page Not Found</h1>
-          <p className="text-xs text-dark-muted">The page you are looking for does not exist or has been moved.</p>
-        </div>
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl btn-mustard text-white text-xs font-semibold shadow-glow-blue"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Return to Dashboard</span>
+        <p className="mt-5 text-sm font-medium text-fg-subtle">404</p>
+        <h1 className="mt-1 text-2xl font-semibold text-fg">Page not found</h1>
+        <p className="mt-2 text-sm text-fg-muted">The page you’re looking for doesn’t exist or has moved.</p>
+        <Link href="/dashboard" className="btn btn-primary mt-6">
+          <ArrowLeft className="h-4 w-4" />
+          Back to dashboard
         </Link>
       </div>
     </div>

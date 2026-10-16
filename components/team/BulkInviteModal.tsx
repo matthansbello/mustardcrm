@@ -5,7 +5,8 @@ import { UserRole } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { bulkInviteTeammates } from '@/lib/services/team';
 import { parseImportFile } from '@/lib/importer/parser';
-import { X, UploadCloud, Loader2 } from 'lucide-react';
+import { FileSpreadsheet, Loader2, Upload } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 interface BulkInviteModalProps {
   isOpen: boolean;
@@ -17,8 +18,6 @@ export const BulkInviteModal: React.FC<BulkInviteModalProps> = ({ isOpen, onClos
   const { organization, user } = useAuthStore();
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<{ invited: number; skipped: number; errors: string[] } | null>(null);
-
-  if (!isOpen) return null;
 
   const handleFile = async (file: File) => {
     if (!organization?.id || !user?.id) return;
@@ -61,50 +60,65 @@ export const BulkInviteModal: React.FC<BulkInviteModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-      <div className="w-full max-w-md glass-panel p-6 rounded-3xl border border-white/10 space-y-5 relative">
-        <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-white p-1">
-          <X className="w-4 h-4" />
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      locked={isProcessing}
+      title="Bulk invite"
+      description="Invite several teammates at once from a spreadsheet."
+      footer={
+        <button onClick={onClose} disabled={isProcessing} className="btn btn-secondary">
+          {result ? 'Done' : 'Cancel'}
         </button>
-
+      }
+    >
+      <label className="flex cursor-pointer flex-col items-center gap-3 rounded-lg border border-dashed border-line-strong bg-canvas px-6 py-10 text-center transition-colors hover:border-accent hover:bg-accent-soft">
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="sr-only"
+          onChange={(e) => {
+            if (e.target.files?.[0]) handleFile(e.target.files[0]);
+            e.target.value = '';
+          }}
+        />
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface-2 text-fg-muted">
+          {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileSpreadsheet className="h-5 w-5" strokeWidth={1.75} />}
+        </span>
         <div>
-          <h3 className="text-lg font-bold font-display text-white">Bulk Invite Team</h3>
-          <p className="text-xs text-dark-muted mt-1">
-            CSV/XLSX with columns: email, firstName, lastName, and role (or title as role).
+          <p className="text-sm font-medium text-fg">{isProcessing ? 'Sending invites…' : 'Drop a CSV or Excel file'}</p>
+          <p className="mt-1 text-xs text-fg-muted">
+            Columns: <span className="text-fg">email</span>, and optionally name and{' '}
+            <span className="text-fg">role</span> (admin, manager or rep).
           </p>
         </div>
-
-        <label className="border-2 border-dashed border-white/20 hover:border-mustard-500 rounded-2xl p-8 flex flex-col items-center gap-2 cursor-pointer text-center">
-          <input
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.[0]) handleFile(e.target.files[0]);
-            }}
-          />
-          {isProcessing ? (
-            <Loader2 className="w-8 h-8 text-mustard-400 animate-spin" />
-          ) : (
-            <UploadCloud className="w-8 h-8 text-mustard-400" />
-          )}
-          <span className="text-xs text-white font-medium">
-            {isProcessing ? 'Inviting...' : 'Drop team CSV here'}
+        {!isProcessing && (
+          <span className="btn btn-secondary btn-sm pointer-events-none">
+            <Upload className="h-4 w-4" />
+            Choose file
           </span>
-        </label>
-
-        {result && (
-          <div className="text-xs space-y-1 p-3 rounded-xl bg-white/5 border border-white/10">
-            <p className="text-emerald-400">Invited: {result.invited}</p>
-            <p className="text-amber-400">Skipped: {result.skipped}</p>
-            {result.errors.slice(0, 5).map((e) => (
-              <p key={e} className="text-rose-300">
-                {e}
-              </p>
-            ))}
-          </div>
         )}
-      </div>
-    </div>
+      </label>
+
+      {result && (
+        <div className="mt-4 space-y-2">
+          <div className="grid grid-cols-2 divide-x divide-line rounded-lg border border-line text-center">
+            <div className="py-3">
+              <p className="text-lg font-semibold tabular-nums text-emerald-300">{result.invited}</p>
+              <p className="text-xs text-fg-muted">Invited</p>
+            </div>
+            <div className="py-3">
+              <p className="text-lg font-semibold tabular-nums text-amber-300">{result.skipped}</p>
+              <p className="text-xs text-fg-muted">Skipped</p>
+            </div>
+          </div>
+          {result.errors.slice(0, 5).map((e) => (
+            <p key={e} className="text-xs text-rose-300">
+              {e}
+            </p>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 };
