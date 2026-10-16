@@ -4,9 +4,3 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-
-# SPA / Fallback redirect to handle deep client-side routes
-[[redirects]]
-  from = "/*"
-  to = "/:splat"
-  status = 200

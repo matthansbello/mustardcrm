@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { User, Organization, InboxConnectionStatus } from '@/types';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase/client';
-import { syncUserProfile, flushPendingMailboxTokens } from '@/lib/firebase/auth';
+import { syncUserProfile, flushPendingMailboxTokens, signOutUser } from '@/lib/firebase/auth';
 
 interface AuthState {
   user: User | null;
@@ -12,6 +12,8 @@ interface AuthState {
   inboxStatus: InboxConnectionStatus;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** Set when Firebase sign-in succeeded but the workspace profile couldn't load. */
+  authError: string | null;
   setUser: (user: User | null) => void;
   setOrganization: (org: Organization | null) => void;
   setInboxStatus: (status: InboxConnectionStatus) => void;
@@ -27,6 +29,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   inboxStatus: 'disconnected',
   isLoading: true,
   isAuthenticated: false,
+  authError: null,
   setUser: (user) =>
     set({
       user,
@@ -45,6 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
+        set({ isLoading: true, authError: null });
         try {
           const { user, organization } = await syncUserProfile(fbUser);
           let inboxStatus = user.inboxStatus || 'disconnected';
@@ -73,6 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
             inboxStatus,
             isLoading: false,
             isAuthenticated: true,
+            authError: null,
           });
         } catch (error) {
           console.error('Error syncing user profile:', error);
@@ -81,7 +86,10 @@ export const useAuthStore = create<AuthState>((set) => ({
             organization: null,
             isLoading: false,
             isAuthenticated: false,
+            authError: error instanceof Error ? error.message : 'Could not load your workspace.',
           });
+          // Don't leave a half-signed-in Firebase session behind.
+          signOutUser().catch(() => undefined);
         }
       } else {
         set({

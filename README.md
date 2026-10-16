@@ -17,7 +17,9 @@ Mustard combines contact/pipeline CRM with multi-step cold email sequences sent 
 
 ## Features
 
-- Google Workspace sign-in + incremental Gmail OAuth
+- Sign in with Google, Microsoft, Apple, GitHub, email + password, or a passwordless email link
+- One shared workspace: every user sees every contact, company, deal, and sequence
+- Gmail OAuth for sending (any user can connect a Gmail inbox, whatever they signed in with)
 - Contacts, companies, deals (Kanban with GSAP Flip drag)
 - CSV/XLSX bulk import with mapping, validation, and live progress
 - Sequence builder with personalization tokens and launch guards
@@ -48,6 +50,8 @@ Fill in Firebase client/admin credentials, Google OAuth client, and:
 | `TOKEN_ENCRYPTION_KEY` | ≥32 chars — encrypts Gmail refresh tokens |
 | `CRON_SECRET` | Protects `/api/cron/sequence-tick` |
 | `GOOGLE_REDIRECT_URI` | Default: `http://localhost:3000/api/auth/google/callback` |
+| `MUSTARD_ADMIN_EMAILS` | Comma-separated emails that are always admins; everyone else joins as a rep |
+| `NEXT_PUBLIC_AUTH_METHODS` | Which sign-in buttons to show (`google,microsoft,apple,github,password,emaillink`) |
 
 Generate secrets:
 
@@ -57,7 +61,7 @@ node -e "const c=require('crypto'); console.log(c.randomBytes(32).toString('base
 
 ### 3. Google Cloud / Firebase
 
-1. Create a Firebase project (Auth with Google provider, Firestore, Storage, Functions on Blaze).
+1. Create a Firebase project (Auth, Firestore, Storage, Functions on Blaze). Under **Authentication → Sign-in method**, enable each provider listed in `NEXT_PUBLIC_AUTH_METHODS` (Google, Microsoft, Apple, GitHub, Email/Password with **Email link** turned on). Add your deployed domain under **Authentication → Settings → Authorized domains**.
 2. Enable **Gmail API** and **People API**.
 3. Configure OAuth consent screen + Web client; add the redirect URI above.
 4. Create Pub/Sub topic `gmail-push` for Gmail `users.watch` (reply detection).
@@ -77,6 +81,15 @@ Optional emulators:
 npm run emulators
 ```
 
+## Migrating existing data to the shared workspace
+
+Older versions gave each Gmail user / email domain its own organization. To merge them:
+
+```bash
+node scripts/migrate-to-shared-workspace.mjs          # dry run
+node scripts/migrate-to-shared-workspace.mjs --apply  # copy everything into MUSTARD_WORKSPACE_ID
+```
+
 ## Scripts
 
 | Command | Description |
@@ -93,7 +106,8 @@ npm run emulators
 ## Project structure
 
 ```
-app/                 # Next.js App Router (marketing, auth, dashboard, API)
+app/                 # Next.js App Router (auth, dashboard, API) — `/` redirects to /dashboard
+scripts/             # One-off maintenance scripts (shared-workspace migration)
 components/          # UI (CRM, sequences, team, layout, analytics)
 lib/                 # Firebase, services, email, GSAP hooks, crypto
 functions/           # Cloud Functions (tick, import, track, Gmail push)
@@ -109,7 +123,7 @@ storage.rules        # Storage rules
 | `GET /api/auth/google` | Start Gmail OAuth |
 | `GET /api/auth/google/callback` | OAuth code exchange |
 | `POST /api/auth/session` | Firebase session cookie |
-| `POST /api/auth/claims` | Sync custom role claims |
+| `POST /api/auth/sync` | Create/refresh the user's profile in the shared workspace (sets role + claims server-side) |
 | `GET /api/track/open` | Open tracking pixel |
 | `GET /api/track/click` | Click redirect tracker |
 | `POST /api/cron/sequence-tick` | Dev/prod send cron (`x-cron-secret`) |

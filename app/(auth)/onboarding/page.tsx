@@ -3,16 +3,19 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { updateOrganizationName } from '@/lib/firebase/auth';
+import { startGmailConnect, updateOrganizationName } from '@/lib/firebase/auth';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { Zap, CheckCircle2, ArrowRight, Building, Mail, Users, Chrome, AlertCircle } from 'lucide-react';
 
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, organization, setOrganization, setInboxStatus } = useAuthStore();
+  const { user, organization, inboxStatus, setOrganization, setInboxStatus } = useAuthStore();
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Everyone shares one workspace — only admins name it; Google sign-ins may already have Gmail connected.
+  const [step, setStep] = useState<1 | 2 | 3>(() =>
+    user?.role === 'admin' ? 1 : inboxStatus === 'connected' ? 3 : 2
+  );
   const [orgName, setOrgName] = useState(organization?.name || '');
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -54,15 +57,7 @@ function OnboardingContent() {
     setIsConnecting(true);
     setError(null);
     try {
-      if (!user?.id || !organization?.id) {
-        throw new Error('You must be signed in to connect Gmail');
-      }
-      const res = await fetch(`/api/auth/google?userId=${user.id}&orgId=${organization.id}`);
-      const data = await res.json();
-      if (!res.ok || !data.url) {
-        throw new Error(data.error || 'Failed to start Gmail OAuth');
-      }
-      window.location.href = data.url;
+      await startGmailConnect('/onboarding?gmail=connected');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error connecting inbox';
       console.error(message);
@@ -118,8 +113,8 @@ function OnboardingContent() {
           <form onSubmit={handleStep1Submit} className="space-y-6">
             <div className="space-y-2">
               <span className="text-xs font-semibold text-mustard-400 uppercase tracking-wider">Step 1 of 3</span>
-              <h2 className="text-2xl font-bold font-display text-white">Name your organization</h2>
-              <p className="text-xs text-dark-muted">This will be shared across your sales team members.</p>
+              <h2 className="text-2xl font-bold font-display text-white">Name your team workspace</h2>
+              <p className="text-xs text-dark-muted">Everyone who signs in joins this workspace and sees the same contacts.</p>
             </div>
 
             <div className="space-y-2">

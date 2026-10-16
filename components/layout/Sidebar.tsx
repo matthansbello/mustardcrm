@@ -69,7 +69,7 @@ export const Sidebar: React.FC = () => {
       <div>
         <Link
           ref={brandRef}
-          href="/"
+          href="/dashboard"
           className="flex items-center gap-3 px-3 py-3 mb-6 group"
         >
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 via-blue-600 to-cyan-400 flex items-center justify-center shadow-glow-blue group-hover:scale-110 transition-transform duration-300">

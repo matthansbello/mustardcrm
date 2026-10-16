@@ -7,6 +7,34 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Membership docs are created server-side by /api/auth/sync.
+    function memberDoc(orgId) {
+      return /databases/$(database)/documents/organizations/$(orgId)/users/$(request.auth.uid);
+    }
+
+    function isMember(orgId) {
+      return isAuthenticated()
+        && exists(memberDoc(orgId))
+        && get(memberDoc(orgId)).data.status == 'active';
+    }
+
+    function myRole(orgId) {
+      return get(memberDoc(orgId)).data.role;
+    }
+
+    function isAdmin(orgId) {
+      return isMember(orgId) && myRole(orgId) == 'admin';
+    }
+
+    function isManager(orgId) {
+      return isMember(orgId) && myRole(orgId) in ['admin', 'manager'];
+    }
+
+    // Reps can invite reps/managers; only admins can hand out admin.
+    function canGrantRole(orgId, role) {
+      return role in ['rep', 'manager'] || (role == 'admin' && isAdmin(orgId));
+    }
+
     // OAuth tokens — Server / Admin SDK only
     match /tokens/{userId} {
       allow read, write: if false;
@@ -14,16 +42,74 @@ service cloud.firestore {
 
     // Global invitation lookup index
     match /invites_index/{inviteId} {
-      allow create, read, update: if isAuthenticated();
+      allow read: if isAuthenticated() && isMember(resource.data.orgId);
+      allow create: if isAuthenticated()
+        && isMember(request.resource.data.orgId)
+        && canGrantRole(request.resource.data.orgId, request.resource.data.role);
+      allow update: if isAuthenticated() && isManager(resource.data.orgId);
       allow delete: if false;
     }
 
     match /organizations/{orgId} {
-      allow create, read, update: if isAuthenticated();
-      allow delete: if false;
+      allow read: if isMember(orgId);
+      allow update: if isAdmin(orgId);
+      allow create, delete: if false;
+
+      match /users/{userId} {
+        allow read: if isMember(orgId);
+        // Invite placeholders only — real member docs are created server-side.
+        allow create: if isMember(orgId)
+          && request.resource.data.status == 'invited'
+          && canGrantRole(orgId, request.resource.data.role);
+        allow update: if isAdmin(orgId)
+          || (isManager(orgId) && request.resource.data.role != 'admin' && resource.data.role != 'admin')
+          || (request.auth.uid == userId && isMember(orgId)
+              && !request.resource.data.diff(resource.data).affectedKeys()
+                  .hasAny(['id', 'orgId', 'email', 'role', 'status']));
+        allow delete: if isAdmin(orgId);
+      }
+
+      match /invites/{inviteId} {
+        allow read: if isMember(orgId);
+        allow create: if isMember(orgId) && canGrantRole(orgId, request.resource.data.role);
+        allow update, delete: if isManager(orgId);
+      }
+
+      // Shared CRM data — every workspace member can see and edit everything.
+      match /contacts/{contactId} {
+        allow read, write: if isMember(orgId);
+        match /{sub=**} {
+          allow read, write: if isMember(orgId);
+        }
+      }
+
+      match /companies/{companyId} {
+        allow read, write: if isMember(orgId);
+      }
+
+      match /deals/{dealId} {
+        allow read, write: if isMember(orgId);
+      }
+
+      match /sequences/{sequenceId} {
+        allow read, write: if isMember(orgId);
+        match /{sub=**} {
+          allow read, write: if isMember(orgId);
+        }
+      }
+
+      match /importJobs/{jobId} {
+        allow read, create: if isMember(orgId);
+        allow update, delete: if false;
+      }
 
       match /emailEvents/{eventId} {
-        allow read: if isAuthenticated();
+        allow read: if isMember(orgId);
+        allow write: if false;
+      }
+
+      match /stats/{docId} {
+        allow read: if isMember(orgId);
         allow write: if false;
       }
 
@@ -33,15 +119,6 @@ service cloud.firestore {
 
       match /mailboxCaps/{docId} {
         allow read, write: if false;
-      }
-
-      match /stats/{docId} {
-        allow read: if isAuthenticated();
-        allow write: if false;
-      }
-
-      match /{allSubcollections=**} {
-        allow read, write: if isAuthenticated();
       }
     }
   }

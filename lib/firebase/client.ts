@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, Auth, GoogleAuthProvider, OAuthProvider, GithubAuthProvider } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 
@@ -31,4 +31,22 @@ googleProvider.addScope('https://www.googleapis.com/auth/userinfo.profile');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
 
-export { app, auth, db, storage, googleProvider };
+const microsoftProvider = new OAuthProvider('microsoft.com');
+microsoftProvider.setCustomParameters({ prompt: 'select_account' });
+
+const appleProvider = new OAuthProvider('apple.com');
+appleProvider.addScope('email');
+appleProvider.addScope('name');
+
+const githubProvider = new GithubAuthProvider();
+githubProvider.addScope('user:email');
+
+export type OAuthProviderId = 'google' | 'microsoft' | 'apple' | 'github';
+
+const oauthProviders = {
+  microsoft: microsoftProvider,
+  apple: appleProvider,
+  github: githubProvider,
+};
+
+export { app, auth, db, storage, googleProvider, oauthProviders };

@@ -1,28 +1,26 @@
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   User as FirebaseUser,
+  UserCredential,
+  AuthProvider,
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+  updateProfile,
 } from 'firebase/auth';
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-  limit,
-} from 'firebase/firestore';
-import { auth, db, googleProvider } from './client';
-import { User, Organization, Invite } from '@/types';
-import {
-  defaultDailyCapForEmail,
-  defaultOrgName,
-  isConsumerGoogleEmail,
-  resolveDefaultOrgId,
-} from '@/lib/auth/domains';
+import { doc, updateDoc } from 'firebase/firestore';
+import { auth, db, googleProvider, oauthProviders, OAuthProviderId } from './client';
+import { User, Organization } from '@/types';
+
+const EMAIL_LINK_STORAGE_KEY = 'mustard_email_for_sign_in';
 
 let pendingMailboxTokens: {
   accessToken: string | null;
@@ -30,8 +28,11 @@ let pendingMailboxTokens: {
   scope: string;
 } | null = null;
 
-export async function signInWithGoogle(): Promise<FirebaseUser> {
-  const result = await signInWithPopup(auth, googleProvider);
+let pendingDisplayName: string | null = null;
+
+/** Google sign-in also grants Gmail send/read, so keep those tokens for the mailbox. */
+function captureGoogleTokens(result: UserCredential) {
+  if (result.providerId !== GoogleAuthProvider.PROVIDER_ID) return;
   const credential = GoogleAuthProvider.credentialFromResult(result);
   const tokenResponse = (result as unknown as { _tokenResponse?: Record<string, string> })
     ._tokenResponse;
@@ -41,8 +42,125 @@ export async function signInWithGoogle(): Promise<FirebaseUser> {
     refreshToken: tokenResponse?.oauthRefreshToken || null,
     scope: tokenResponse?.oauthScope || '',
   };
+}
 
+/**
+ * Popup sign-in for Google / Microsoft / Apple / GitHub.
+ * Falls back to a full-page redirect when the browser blocks popups.
+ */
+export async function signInWithOAuth(providerId: OAuthProviderId): Promise<FirebaseUser | null> {
+  const provider: AuthProvider = providerId === 'google' ? googleProvider : oauthProviders[providerId];
+  try {
+    const result = await signInWithPopup(auth, provider);
+    captureGoogleTokens(result);
+    return result.user;
+  } catch (err: unknown) {
+    if (authErrorCode(err) === 'auth/popup-blocked') {
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** Call once on the auth pages to finish a redirect-based OAuth sign-in. */
+export async function completeRedirectSignIn(): Promise<void> {
+  const result = await getRedirectResult(auth);
+  if (result) captureGoogleTokens(result);
+}
+
+export async function signInWithPassword(email: string, password: string): Promise<FirebaseUser> {
+  const result = await signInWithEmailAndPassword(auth, email.trim(), password);
   return result.user;
+}
+
+export async function signUpWithPassword(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<FirebaseUser> {
+  // The auth listener syncs the profile as soon as the account exists, before
+  // updateProfile below lands — so hand the name to that sync directly.
+  pendingDisplayName = displayName?.trim() || null;
+  const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  if (pendingDisplayName) {
+    updateProfile(result.user, { displayName: pendingDisplayName }).catch(() => undefined);
+  }
+  sendEmailVerification(result.user).catch(() => undefined);
+  return result.user;
+}
+
+export async function resetPassword(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
+/** Passwordless "magic link" sign-in. */
+export async function sendMagicLink(email: string, next = '/dashboard'): Promise<void> {
+  const url = `${window.location.origin}/login?next=${encodeURIComponent(next)}`;
+  await sendSignInLinkToEmail(auth, email.trim(), { url, handleCodeInApp: true });
+  try {
+    window.localStorage.setItem(EMAIL_LINK_STORAGE_KEY, email.trim());
+  } catch {
+    // Storage unavailable — user will be asked for their email when they open the link
+  }
+}
+
+export function isMagicLink(href: string): boolean {
+  return isSignInWithEmailLink(auth, href);
+}
+
+export function storedMagicLinkEmail(): string | null {
+  try {
+    return window.localStorage.getItem(EMAIL_LINK_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function completeMagicLink(email: string, href: string): Promise<FirebaseUser> {
+  const result = await signInWithEmailLink(auth, email.trim(), href);
+  try {
+    window.localStorage.removeItem(EMAIL_LINK_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  return result.user;
+}
+
+export function authErrorCode(err: unknown): string {
+  return typeof err === 'object' && err && 'code' in err ? String((err as { code: unknown }).code) : '';
+}
+
+/** Turn Firebase Auth error codes into something a person can act on. */
+export function friendlyAuthError(err: unknown): string {
+  switch (authErrorCode(err)) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password.';
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists. Sign in instead.';
+    case 'auth/weak-password':
+      return 'Password must be at least 6 characters.';
+    case 'auth/invalid-email':
+      return 'Enter a valid email address.';
+    case 'auth/account-exists-with-different-credential':
+      return 'This email is already registered with a different sign-in method. Use that method to sign in.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled yet. An admin needs to turn it on in the Firebase console (Authentication → Sign-in method).';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Sign-in was cancelled.';
+    case 'auth/unauthorized-domain':
+      return 'This domain is not authorized for sign-in. Add it under Firebase Authentication → Settings → Authorized domains.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a moment and try again.';
+    case 'auth/invalid-action-code':
+    case 'auth/expired-action-code':
+      return 'This sign-in link has expired or was already used. Request a new one.';
+    default:
+      return err instanceof Error ? err.message : 'Sign-in failed. Please try again.';
+  }
 }
 
 /** Persist Gmail tokens after the org/user docs exist. */
@@ -73,188 +191,46 @@ export async function flushPendingMailboxTokens(
   }
 }
 
+/** Start the Gmail OAuth flow so any user (whatever they signed in with) can send from a Gmail inbox. */
+export async function startGmailConnect(returnTo?: string): Promise<void> {
+  const current = auth.currentUser;
+  if (!current) throw new Error('Please sign in before connecting Gmail.');
+  const idToken = await current.getIdToken();
+  const qs = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
+  const res = await fetch(`/api/auth/google${qs}`, { headers: { Authorization: `Bearer ${idToken}` } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || 'Failed to start Gmail OAuth');
+  }
+  window.location.href = data.url;
+}
+
 export async function signOutUser(): Promise<void> {
   await firebaseSignOut(auth);
 }
 
-async function findPendingInvite(email: string): Promise<(Invite & { orgId: string }) | null> {
-  const normalized = email.toLowerCase().trim();
-  try {
-    const invitesGroup = collection(db, 'invites_index');
-    const q = query(
-      invitesGroup,
-      where('email', '==', normalized),
-      where('status', '==', 'pending'),
-      limit(1)
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      return snap.docs[0].data() as Invite & { orgId: string };
-    }
-  } catch {
-    // Index may not exist yet
-  }
-  return null;
-}
-
-async function claimInviteInOrg(orgId: string, email: string): Promise<Invite | null> {
-  const normalized = email.toLowerCase().trim();
-  try {
-    const invitesRef = collection(db, `organizations/${orgId}/invites`);
-    const q = query(
-      invitesRef,
-      where('email', '==', normalized),
-      where('status', '==', 'pending'),
-      limit(1)
-    );
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    return snap.docs[0].data() as Invite;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Synchronize user profile & organization in Firestore.
- * - Workspace domains: one org per domain; first user is admin.
- * - gmail.com / googlemail.com: personal org per user with full admin access.
- * - Pending invites always win over default org resolution.
+ * Create or refresh the user's profile in the shared workspace.
+ * Role and membership are decided server-side (see /api/auth/sync).
  */
 export async function syncUserProfile(
   fbUser: FirebaseUser
 ): Promise<{ user: User; organization: Organization }> {
-  const email = (fbUser.email || '').toLowerCase().trim();
-  const userId = fbUser.uid;
-  const now = new Date().toISOString();
-  const domain = email.split('@')[1] || 'gmail.com';
-  const personal = isConsumerGoogleEmail(email);
-
-  const pendingInvite = await findPendingInvite(email);
-  const orgId = pendingInvite?.orgId || resolveDefaultOrgId(email, userId);
-
-  const orgRef = doc(db, 'organizations', orgId);
-  const orgSnap = await getDoc(orgRef);
-
-  let organization: Organization;
-  const isNewOrg = !orgSnap.exists();
-
-  if (!isNewOrg) {
-    organization = orgSnap.data() as Organization;
-  } else {
-    organization = {
-      id: orgId,
-      name: defaultOrgName(email, fbUser.displayName || undefined),
-      domain,
-      createdAt: now,
-      updatedAt: now,
-      settings: {
-        defaultDailyCapPerMailbox: defaultDailyCapForEmail(email),
-        defaultSendingWindow: {
-          startHour: 9,
-          endHour: 17,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
-        },
-      },
-    };
-    await setDoc(orgRef, organization);
+  const idToken = await fbUser.getIdToken();
+  const displayName = pendingDisplayName;
+  pendingDisplayName = null;
+  const res = await fetch('/api/auth/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ displayName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Could not load your workspace profile.');
   }
-
-  const invite = pendingInvite || (await claimInviteInOrg(orgId, email));
-
-  const userRef = doc(db, `organizations/${orgId}/users`, userId);
-  const userSnap = await getDoc(userRef);
-
-  let user: User;
-
-  if (userSnap.exists()) {
-    const existing = userSnap.data() as User;
-    user = {
-      ...existing,
-      displayName: fbUser.displayName || existing.displayName,
-      photoURL: fbUser.photoURL || existing.photoURL,
-      status: existing.status === 'invited' ? 'active' : existing.status || 'active',
-      updatedAt: now,
-    };
-    await updateDoc(userRef, {
-      displayName: user.displayName,
-      photoURL: user.photoURL || null,
-      status: user.status,
-      updatedAt: now,
-    });
-  } else {
-    let emailSnap: any = { empty: true, docs: [] };
-    try {
-      const usersRef = collection(db, `organizations/${orgId}/users`);
-      const emailQ = query(usersRef, where('email', '==', email), limit(1));
-      emailSnap = await getDocs(emailQ);
-    } catch {
-      // Best-effort lookup for invited email placeholder
-    }
-
-    if (!emailSnap.empty && emailSnap.docs.length > 0) {
-      const placeholder = emailSnap.docs[0].data() as User;
-      user = {
-        ...placeholder,
-        id: userId,
-        displayName: fbUser.displayName || placeholder.displayName,
-        photoURL: fbUser.photoURL || undefined,
-        status: 'active',
-        updatedAt: now,
-      };
-      await setDoc(userRef, user);
-      if (emailSnap.docs[0].id !== userId) {
-        await updateDoc(emailSnap.docs[0].ref, {
-          status: 'inactive',
-          updatedAt: now,
-        });
-      }
-    } else {
-      const role = invite?.role || (isNewOrg || personal ? 'admin' : 'rep');
-      user = {
-        id: userId,
-        orgId,
-        email,
-        displayName: fbUser.displayName || email.split('@')[0],
-        photoURL: fbUser.photoURL || undefined,
-        role,
-        status: 'active',
-        inboxStatus: 'disconnected',
-        createdAt: now,
-        updatedAt: now,
-      };
-      await setDoc(userRef, user);
-    }
-  }
-
-  if (invite) {
-    const inviteRef = doc(db, `organizations/${orgId}/invites`, invite.id);
-    await updateDoc(inviteRef, { status: 'accepted', updatedAt: now }).catch(() => undefined);
-    await setDoc(doc(db, 'invites_index', invite.id), { status: 'accepted', updatedAt: now }, { merge: true }).catch(
-      () => undefined
-    );
-
-    if (user.role !== invite.role) {
-      await updateDoc(userRef, { role: invite.role, updatedAt: now });
-      user = { ...user, role: invite.role };
-    }
-  }
-
-  try {
-    const idToken = await fbUser.getIdToken();
-    await fetch('/api/auth/claims', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ orgId, role: user.role }),
-    });
-  } catch {
-    // Claims sync is best-effort
-  }
-
-  return { user, organization };
+  // Pick up the orgId/role custom claims the server may have just set.
+  await fbUser.getIdToken(true).catch(() => undefined);
+  return data as { user: User; organization: Organization };
 }
 
 export async function updateOrganizationName(orgId: string, name: string): Promise<void> {

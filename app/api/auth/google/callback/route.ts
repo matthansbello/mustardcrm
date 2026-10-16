@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { adminDb } from '@/lib/firebase/admin';
-import { encryptToken } from '@/lib/crypto';
+import { encryptToken, verifyOAuthState } from '@/lib/crypto';
 
 function getOAuthClient() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -38,15 +38,12 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=missing_code`);
   }
 
-  let userId = '';
-  let orgId = '';
-  try {
-    const state = JSON.parse(stateRaw) as { userId?: string; orgId?: string };
-    userId = state.userId || '';
-    orgId = state.orgId || '';
-  } catch {
+  const state = verifyOAuthState(stateRaw);
+  if (!state) {
     return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=invalid_state`);
   }
+  const userId = state.userId || '';
+  const orgId = state.orgId || '';
 
   if (!userId || !orgId) {
     return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=missing_state`);
@@ -102,8 +99,9 @@ export async function GET(request: Request) {
       );
 
     // Prefer returning users to onboarding step 3 if they came from there
-    const returnTo = searchParams.get('returnTo') || '/onboarding?gmail=connected';
-    return NextResponse.redirect(`${appUrl}${returnTo.startsWith('/') ? returnTo : '/settings?gmail=connected'}`);
+    const returnTo = state.returnTo || '/onboarding?gmail=connected';
+    const safeReturn = returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/settings?gmail=connected';
+    return NextResponse.redirect(`${appUrl}${safeReturn}`);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'token_exchange_failed';
     console.error('OAuth callback error:', message);

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuthStore } from '@/lib/store/useAuthStore';
+import { startGmailConnect } from '@/lib/firebase/auth';
 import { Chrome, Mail, X, AlertCircle } from 'lucide-react';
 
 interface InboxConnectModalProps {
@@ -10,7 +10,6 @@ interface InboxConnectModalProps {
 }
 
 export const InboxConnectModal: React.FC<InboxConnectModalProps> = ({ isOpen, onClose }) => {
-  const { user, organization, setInboxStatus } = useAuthStore();
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,22 +20,7 @@ export const InboxConnectModal: React.FC<InboxConnectModalProps> = ({ isOpen, on
     setError(null);
 
     try {
-      if (!user?.id || !organization?.id) {
-        throw new Error('Please sign in to your workspace before connecting Gmail.');
-      }
-
-      // Fetch Google OAuth consent URL from server
-      const res = await fetch(`/api/auth/google?userId=${user.id}&orgId=${organization.id}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to initialize Google OAuth flow.');
-      }
-
-      if (data.url) {
-        // Redirect to real Google Workspace OAuth consent screen
-        window.location.href = data.url;
-      }
+      await startGmailConnect('/settings?gmail=connected');
     } catch (err: any) {
       setError(err.message || 'Failed to connect Gmail inbox');
       setIsConnecting(false);

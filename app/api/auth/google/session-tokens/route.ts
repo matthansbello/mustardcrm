@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { encryptToken } from '@/lib/crypto';
-import { resolveDefaultOrgId } from '@/lib/auth/domains';
+import { SHARED_ORG_ID } from '@/lib/auth/domains';
 
 /**
  * Persist Gmail OAuth tokens captured from Firebase Google sign-in.
@@ -25,11 +25,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing tokens' }, { status: 400 });
     }
 
-    const email = (decoded.email || '').toLowerCase();
-    const orgId =
-      (typeof body.orgId === 'string' && body.orgId) ||
-      (typeof decoded.orgId === 'string' && decoded.orgId) ||
-      resolveDefaultOrgId(email, decoded.uid);
+    const orgId = SHARED_ORG_ID;
 
     const existing = await adminDb.collection('tokens').doc(decoded.uid).get();
     const existingData = existing.data() || {};
@@ -44,7 +40,7 @@ export async function POST(request: Request) {
       .set(
         {
           userId: decoded.uid,
-          orgId: existingData.orgId || orgId,
+          orgId,
           encryptedRefreshToken: refreshToken
             ? encryptToken(refreshToken)
             : existingData.encryptedRefreshToken || null,
@@ -60,7 +56,7 @@ export async function POST(request: Request) {
     if (canSend) {
       await adminDb
         .collection('organizations')
-        .doc(existingData.orgId || orgId)
+        .doc(orgId)
         .collection('users')
         .doc(decoded.uid)
         .set(

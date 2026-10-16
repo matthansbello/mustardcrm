@@ -51,3 +51,28 @@ export function decryptToken(encryptedText: string): string {
   decrypted += decipher.final('utf8');
   return decrypted;
 }
+
+const STATE_TTL_MS = 15 * 60 * 1000;
+
+/** HMAC-signed, expiring OAuth `state` so a callback can't be replayed or forged for another user. */
+export function signOAuthState(payload: Record<string, string>): string {
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + STATE_TTL_MS })).toString('base64url');
+  const sig = crypto.createHmac('sha256', getEncryptionKey()).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+export function verifyOAuthState(state: string): Record<string, string> | null {
+  const [body, sig] = state.split('.');
+  if (!body || !sig) return null;
+  const expected = crypto.createHmac('sha256', getEncryptionKey()).update(body).digest('base64url');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
