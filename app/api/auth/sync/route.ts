@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb, describeAdminCredentialError } from '@/lib/firebase/admin';
 import {
   SHARED_ORG_ID,
   SHARED_ORG_NAME,
@@ -146,6 +146,10 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Profile sync failed';
     console.error('Profile sync error:', message);
+    const credentialProblem = describeAdminCredentialError(error);
+    if (credentialProblem) {
+      return NextResponse.json({ error: credentialProblem, code: 'server_credentials' }, { status: 503 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

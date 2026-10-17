@@ -50,6 +50,7 @@ Fill in Firebase client/admin credentials, Google OAuth client, and:
 | `TOKEN_ENCRYPTION_KEY` | ≥32 chars — encrypts Gmail refresh tokens |
 | `CRON_SECRET` | Protects `/api/cron/sequence-tick` |
 | `GOOGLE_REDIRECT_URI` | Default: `http://localhost:3000/api/auth/google/callback` |
+| `FIREBASE_SERVICE_ACCOUNT` | Optional: whole service-account JSON in one value (instead of `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY`). Verify with `npm run check:firebase` |
 | `MUSTARD_ADMIN_EMAILS` | Comma-separated emails that are always admins; everyone else joins as a rep |
 | `NEXT_PUBLIC_AUTH_METHODS` | Which sign-in buttons to show (`google,microsoft,apple,github,password,emaillink`) |
 

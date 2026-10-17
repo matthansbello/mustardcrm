@@ -10,7 +10,8 @@
     "functions:build": "npm --prefix functions run build",
     "functions:deploy": "firebase deploy --only functions",
     "firebase:deploy": "firebase deploy",
-    "emulators": "firebase emulators:start"
+    "emulators": "firebase emulators:start",
+    "check:firebase": "node scripts/check-firebase-admin.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.16",

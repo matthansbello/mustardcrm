@@ -3,7 +3,7 @@ import { google } from 'googleapis';
 import { adminAuth } from '@/lib/firebase/admin';
 import { signOAuthState } from '@/lib/crypto';
 import { SHARED_ORG_ID } from '@/lib/auth/domains';
-import { getGoogleRedirectUri } from '@/lib/appUrl';
+import { getGoogleRedirectUri, isValidRedirectUri } from '@/lib/appUrl';
 
 /**
  * Start Gmail OAuth consent flow.
@@ -31,6 +31,15 @@ export async function GET(request: Request) {
   if (!clientId || !clientSecret) {
     return NextResponse.json(
       { error: 'Google OAuth credentials not configured on server' },
+      { status: 500 }
+    );
+  }
+
+  // Catch a bad redirect address here rather than sending people to Google's "Access blocked" page.
+  if (!isValidRedirectUri(redirectUri)) {
+    console.error(`[oauth] Invalid Gmail redirect URI: ${redirectUri}`);
+    return NextResponse.json(
+      { error: `Gmail connection is misconfigured on the server (invalid redirect address: ${redirectUri}).` },
       { status: 500 }
     );
   }
