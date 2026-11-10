@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { startGmailConnect, updateOrganizationName } from '@/lib/firebase/auth';
+import { startMailboxConnect, updateOrganizationName } from '@/lib/firebase/auth';
+import type { MailProvider } from '@/types';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { Logo } from '@/components/brand/Logo';
 import { CheckCircle2, ArrowRight, Building, Mail, Users, AlertCircle } from 'lucide-react';
@@ -19,7 +20,7 @@ function OnboardingContent() {
   );
   const [orgName, setOrgName] = useState(organization?.name || '');
   const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState<MailProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
 
@@ -30,7 +31,7 @@ function OnboardingContent() {
   }, [organization?.name, orgName]);
 
   useEffect(() => {
-    if (searchParams?.get('gmail') === 'connected') {
+    if (searchParams?.get('mail') === 'connected' || searchParams?.get('gmail') === 'connected') {
       setIsConnected(true);
       setInboxStatus('connected');
       setStep(3);
@@ -54,16 +55,16 @@ function OnboardingContent() {
     }
   };
 
-  const handleConnectGmail = async () => {
-    setIsConnecting(true);
+  const handleConnect = async (provider: MailProvider) => {
+    setIsConnecting(provider);
     setError(null);
     try {
-      await startGmailConnect('/onboarding?gmail=connected');
+      await startMailboxConnect(provider, '/onboarding?mail=connected');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error connecting inbox';
       console.error(message);
       setError(message);
-      setIsConnecting(false);
+      setIsConnecting(null);
     }
   };
 
@@ -71,7 +72,7 @@ function OnboardingContent() {
     router.push('/dashboard');
   };
 
-  const steps = ['Workspace', 'Gmail', 'Contacts'];
+  const steps = ['Workspace', 'Inbox', 'Contacts'];
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
@@ -139,10 +140,10 @@ function OnboardingContent() {
             <div className="space-y-6">
               <div>
                 <p className="text-xs font-medium text-fg-subtle">Step 2 of 3</p>
-                <h1 className="mt-1 text-2xl font-semibold text-fg">Connect your Gmail</h1>
+                <h1 className="mt-1 text-2xl font-semibold text-fg">Connect your inbox</h1>
                 <p className="mt-1 text-sm text-fg-muted">
-                  Sequences are sent from your own Gmail or Google Workspace address, and replies stop them
-                  automatically.
+                  Sequences are sent from your own Gmail, Google Workspace or Zoho Mail address, and replies stop
+                  them automatically.
                 </p>
               </div>
 
@@ -156,7 +157,7 @@ function OnboardingContent() {
                 <li className="flex gap-3">
                   <Users className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
                   <span className="text-fg-muted">
-                    <span className="text-fg">Detect replies</span> — reads message headers only
+                    <span className="text-fg">Detect replies</span> — so sequences stop when someone answers
                   </span>
                 </li>
               </ul>
@@ -164,12 +165,23 @@ function OnboardingContent() {
               {isConnected ? (
                 <div className="alert alert-success">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Gmail connected.</span>
+                  <span>{searchParams?.get('provider') === 'zoho' ? 'Zoho Mail' : 'Gmail'} connected.</span>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <button onClick={handleConnectGmail} disabled={isConnecting} className="btn btn-primary btn-lg w-full">
-                    {isConnecting ? 'Redirecting to Google…' : 'Connect Gmail'}
+                  <button
+                    onClick={() => handleConnect('gmail')}
+                    disabled={!!isConnecting}
+                    className="btn btn-primary btn-lg w-full"
+                  >
+                    {isConnecting === 'gmail' ? 'Redirecting to Google…' : 'Connect Gmail / Google Workspace'}
+                  </button>
+                  <button
+                    onClick={() => handleConnect('zoho')}
+                    disabled={!!isConnecting}
+                    className="btn btn-secondary btn-lg w-full"
+                  >
+                    {isConnecting === 'zoho' ? 'Redirecting to Zoho…' : 'Connect Zoho Mail'}
                   </button>
                   <button type="button" onClick={() => setStep(3)} className="btn btn-ghost w-full">
                     Skip for now

@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, CircleAlert, LogOut } from 'lucide-react';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-import { signOutUser, startGmailConnect } from '@/lib/firebase/auth';
+import { disconnectMailbox, MAIL_PROVIDER_LABEL, signOutUser, startMailboxConnect } from '@/lib/firebase/auth';
+import { InboxConnectModal } from '@/components/auth/InboxConnectModal';
 import { updateOrganization } from '@/lib/services/organization';
 import { ConnectionStatusBadge } from '@/components/layout/ConnectionStatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -33,7 +34,7 @@ function SettingsContent() {
   const containerRef = useGsapReveal<HTMLDivElement>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, organization, inboxStatus, setOrganization, setInboxStatus } = useAuthStore();
+  const { user, organization, inboxStatus, setOrganization, setInboxStatus, setUser } = useAuthStore();
   const isAdmin = user?.role === 'admin';
 
   const [name, setName] = useState(organization?.name || '');
@@ -46,8 +47,12 @@ function SettingsContent() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gmailNotice, setGmailNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [mailNotice, setMailNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const provider = user?.mailProvider || 'gmail';
+  const providerName = MAIL_PROVIDER_LABEL[provider];
 
   useEffect(() => {
     if (!organization) return;
@@ -57,15 +62,16 @@ function SettingsContent() {
     if (w) setSendWindow(`${w.startHour}-${w.endHour}`);
   }, [organization]);
 
-  // Result of the Gmail OAuth redirect.
+  // Result of the Gmail / Zoho OAuth redirect (?mail= or the older ?gmail=).
   useEffect(() => {
-    const gmail = searchParams?.get('gmail');
-    if (!gmail) return;
-    if (gmail === 'connected') {
+    const result = searchParams?.get('mail') || searchParams?.get('gmail');
+    if (!result) return;
+    const name = searchParams?.get('provider') === 'zoho' ? 'Zoho Mail' : 'Gmail';
+    if (result === 'connected') {
       setInboxStatus('connected');
-      setGmailNotice({ ok: true, text: 'Gmail connected. You can now launch sequences.' });
+      setMailNotice({ ok: true, text: `${name} connected. You can now launch sequences.` });
     } else {
-      setGmailNotice({ ok: false, text: `Gmail connection failed: ${searchParams?.get('reason') || 'unknown error'}` });
+      setMailNotice({ ok: false, text: `${name} connection failed: ${searchParams?.get('reason') || 'unknown error'}` });
     }
     router.replace('/settings');
   }, [searchParams, router, setInboxStatus]);
@@ -108,21 +114,35 @@ function SettingsContent() {
     }
   };
 
-  const connectGmail = async () => {
+  const reconnect = async () => {
     setConnecting(true);
     try {
-      await startGmailConnect('/settings?gmail=connected');
+      await startMailboxConnect(provider, '/settings?mail=connected');
     } catch (err) {
-      setGmailNotice({ ok: false, text: err instanceof Error ? err.message : 'Could not start Gmail connection.' });
+      setMailNotice({ ok: false, text: err instanceof Error ? err.message : `Could not start ${providerName} connection.` });
       setConnecting(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!window.confirm(`Disconnect ${providerName}? Active sequences you send will pause until you connect an inbox again.`)) return;
+    setDisconnecting(true);
+    try {
+      await disconnectMailbox();
+      if (user) setUser({ ...user, inboxStatus: 'disconnected', mailProvider: undefined, sendingEmail: undefined });
+      setMailNotice({ ok: true, text: `${providerName} disconnected.` });
+    } catch (err) {
+      setMailNotice({ ok: false, text: err instanceof Error ? err.message : 'Could not disconnect.' });
+    } finally {
+      setDisconnecting(false);
     }
   };
 
   return (
     <div ref={containerRef} className="space-y-6">
-      <PageHeader title="Settings" description="Workspace defaults, your Gmail connection and your account." />
+      <PageHeader title="Settings" description="Workspace defaults, your sending inbox and your account." />
 
-      <div className="-mt-2 divide-y divide-line [&>form]:divide-y [&>form]:divide-line">
+      <div className="divide-y divide-line [&>form]:divide-y [&>form]:divide-line">
         <form onSubmit={handleSave} id="workspace-form">
           <Section
             title="Workspace"
@@ -203,39 +223,57 @@ function SettingsContent() {
           </Section>
         </form>
 
-        <Section title="Gmail" description="Sequences are sent from your own inbox. Replies are detected automatically.">
-          {gmailNotice && (
-            <div className={`alert mb-4 ${gmailNotice.ok ? 'alert-success' : 'alert-error'}`}>
-              {gmailNotice.ok ? (
+        <Section
+          title="Sending inbox"
+          description="Sequences are sent from your own Gmail, Google Workspace or Zoho Mail inbox. Replies are detected automatically."
+        >
+          {mailNotice && (
+            <div className={`alert mb-4 ${mailNotice.ok ? 'alert-success' : 'alert-error'}`}>
+              {mailNotice.ok ? (
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
               ) : (
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               )}
-              <span>{gmailNotice.text}</span>
+              <span>{mailNotice.text}</span>
             </div>
           )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <ConnectionStatusBadge status={inboxStatus} />
-              <span className="min-w-0 break-all text-sm text-fg-muted">{user?.email}</span>
+              <ConnectionStatusBadge status={inboxStatus} provider={user?.mailProvider} />
+              {inboxStatus !== 'disconnected' && (
+                <span className="min-w-0 break-all text-sm text-fg-muted">{user?.sendingEmail || user?.email}</span>
+              )}
             </div>
-            <button onClick={connectGmail} disabled={connecting} className="btn btn-secondary">
-              {connecting ? 'Redirecting…' : inboxStatus === 'connected' ? 'Reconnect' : 'Connect Gmail'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {inboxStatus === 'disconnected' ? (
+                <button onClick={() => setChooserOpen(true)} className="btn btn-primary">
+                  Connect inbox
+                </button>
+              ) : (
+                <>
+                  <button onClick={reconnect} disabled={connecting} className="btn btn-secondary">
+                    {connecting ? 'Redirecting…' : 'Reconnect'}
+                  </button>
+                  <button onClick={() => setChooserOpen(true)} className="btn btn-secondary">
+                    Switch inbox
+                  </button>
+                  <button onClick={disconnect} disabled={disconnecting} className="btn btn-ghost hover:text-rose-300">
+                    {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          <p className="hint mt-3">
-            To disconnect, remove Mustard from your{' '}
-            <a
-              href="https://myaccount.google.com/permissions"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent-fg hover:underline"
-            >
-              Google Account permissions
-            </a>
-            .
-          </p>
+          <p className="hint mt-3">One inbox per person. Connecting a different one replaces the current inbox.</p>
         </Section>
+
+        <InboxConnectModal
+          key={String(chooserOpen)}
+          isOpen={chooserOpen}
+          onClose={() => setChooserOpen(false)}
+          returnTo="/settings?mail=connected"
+          initialProvider={inboxStatus === 'disconnected' ? 'gmail' : provider === 'zoho' ? 'gmail' : 'zoho'}
+        />
 
         <Section title="Account" description="Your profile comes from the sign-in method you used.">
           <div className="flex flex-wrap items-center justify-between gap-3">

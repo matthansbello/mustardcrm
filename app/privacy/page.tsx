@@ -76,7 +76,8 @@ export default function PrivacyPage() {
         <li>Server logs containing IP addresses, browser type and request times, used for security and debugging.</li>
       </ul>
 
-      <h2 id="google-user-data">3. Google user data and Gmail</h2>
+      <h2 id="google-user-data">3. Connected mailboxes: Gmail and Zoho Mail</h2>
+      <h3>Gmail and Google Workspace</h3>
       <p>
         If you sign in with Google or connect a Gmail inbox, we ask Google for permission to access specific data. We
         only request what the Service needs:
@@ -106,7 +107,7 @@ export default function PrivacyPage() {
         page; sending and reply detection stop immediately when you do.
       </p>
       <div className="callout">
-        <p className="!mt-0">
+        <p className="mt-0!">
           <strong>Limited Use disclosure.</strong> {productName}&apos;s use and transfer to any other app of information
           received from Google APIs will adhere to the{' '}
           <a
@@ -134,6 +135,31 @@ export default function PrivacyPage() {
           </li>
         </ul>
       </div>
+
+      <h3>Zoho Mail</h3>
+      <p>
+        If you connect a mailbox hosted in Zoho Mail, we ask Zoho for permission to:
+      </p>
+      <ul>
+        <li>
+          <strong>Read your account details</strong> (<code>ZohoMail.accounts.READ</code>) — to find your mailbox and the
+          verified address you send from.
+        </li>
+        <li>
+          <strong>Send email</strong> (<code>ZohoMail.messages.CREATE</code>) — to send the sequence emails you schedule,
+          from your own Zoho Mail address.
+        </li>
+        <li>
+          <strong>Search messages</strong> (<code>ZohoMail.messages.READ</code>) — solely to check whether a contact you
+          emailed has replied, so the sequence can stop. We search only for messages from contacts in your sequences and
+          use only the sender, time and message ID of a match; we do not store or analyse email content.
+        </li>
+      </ul>
+      <p>
+        Zoho tokens are encrypted before storage and used only by our servers. You can disconnect at any time in
+        Settings, which revokes our access, or from your Zoho account&apos;s connected-apps settings. We use Zoho data only
+        to provide these features and never sell it or use it for advertising or to train AI models.
+      </p>
 
       <h2 id="how-we-use">4. How we use information</h2>
       <ul>
@@ -167,7 +193,8 @@ export default function PrivacyPage() {
           GitHub).
         </li>
         <li>
-          <strong>Google</strong>, when you connect Gmail, to send email and detect replies as described above.
+          <strong>Google or Zoho</strong>, when you connect Gmail or Zoho Mail, to send email and detect replies as
+          described above.
         </li>
         <li>
           <strong>Authorities or other parties</strong> when required by law, or to protect the rights, safety and
@@ -202,8 +229,8 @@ export default function PrivacyPage() {
           from our active systems within 30 days and from backups within 90 days.
         </li>
         <li>
-          Gmail tokens are kept until you disconnect Gmail, revoke access in your Google Account, or close your
-          account.
+          Mailbox tokens (Gmail or Zoho Mail) are kept until you disconnect the inbox, revoke access with the
+          provider, or close your account.
         </li>
         <li>Server logs are kept for up to 90 days unless needed longer to investigate a security incident.</li>
       </ul>

@@ -47,6 +47,24 @@ export function getGoogleRedirectUri(request?: Request): string {
   return `${appUrl}/api/auth/google/callback`;
 }
 
+/**
+ * Zoho Mail OAuth callback URL — must match an "Authorized Redirect URI" on the Zoho API
+ * Console client. Same rules as Gmail: ZOHO_REDIRECT_URI when it's on this request's domain.
+ */
+export function getZohoRedirectUri(request?: Request): string {
+  const appUrl = getAppUrl(request);
+  const configured = parseUrl(process.env.ZOHO_REDIRECT_URI);
+  if (configured) {
+    const normalised = `${configured.origin}${configured.pathname.replace(/\/+$/, '')}`;
+    if (!request || configured.origin === appUrl) return normalised;
+    console.warn(
+      `[oauth] ZOHO_REDIRECT_URI is on ${configured.origin} but this request came from ${appUrl}; ` +
+        `using ${appUrl}/api/auth/zoho/callback. Add it to the Zoho client's authorized redirect URIs.`
+    );
+  }
+  return `${appUrl}/api/auth/zoho/callback`;
+}
+
 /** True when the value is a well-formed absolute URL Google will accept as a redirect URI. */
 export function isValidRedirectUri(uri: string): boolean {
   const url = parseUrl(uri);

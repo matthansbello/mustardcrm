@@ -105,7 +105,7 @@ export const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSuc
                   value={r.value}
                   checked={role === r.value}
                   onChange={() => setRole(r.value)}
-                  className="mt-0.5 accent-[#3b82f6]"
+                  className="mt-0.5 accent-accent"
                 />
                 <span>
                   <span className="block text-sm font-medium text-fg">{r.label}</span>

@@ -12,7 +12,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import admin from 'firebase-admin';
+import { cert, initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const APPLY = process.argv.includes('--apply');
 
@@ -28,10 +29,10 @@ const SKIP_COLLECTIONS = new Set(['stats', 'sendAttempts', 'mailboxCaps']);
 
 const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
-admin.initializeApp({
-  credential: admin.credential.cert({ projectId, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey }),
+initializeApp({
+  credential: cert({ projectId, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey }),
 });
-const db = admin.firestore();
+const db = getFirestore();
 
 const counts = {};
 const bump = (key) => (counts[key] = (counts[key] || 0) + 1);

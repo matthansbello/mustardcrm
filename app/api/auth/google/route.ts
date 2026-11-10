@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     'https://www.googleapis.com/auth/gmail.readonly',
   ];
 
-  const state = signOAuthState({ userId, orgId: SHARED_ORG_ID, returnTo });
+  const state = signOAuthState({ userId, orgId: SHARED_ORG_ID, returnTo, provider: 'gmail' });
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',

@@ -143,7 +143,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
   const launchProblem = !contactsLoaded
     ? 'Loading contacts…'
     : inboxStatus !== 'connected'
-      ? 'Connect your Gmail inbox before launching.'
+      ? 'Connect your email inbox (Gmail or Zoho Mail) before launching.'
       : recipients.length === 0
         ? 'No contacts match this audience.'
         : blockedByTokens
@@ -207,7 +207,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
               onChange={(e) => setName(e.target.value)}
               aria-label="Sequence name"
               size={1}
-              className="col-start-1 row-start-1 w-full min-w-[4ch] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-2xl font-semibold text-fg hover:border-line focus:border-accent focus:outline-none"
+              className="col-start-1 row-start-1 w-full min-w-[4ch] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-2xl font-semibold text-fg hover:border-line focus:border-accent focus:outline-hidden"
             />
           </div>
           <span className="badge badge-neutral shrink-0">Draft</span>
@@ -385,7 +385,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
                   type="checkbox"
                   checked={active.branchOnReply}
                   onChange={(e) => updateStep({ branchOnReply: e.target.checked })}
-                  className="h-4 w-4 rounded border-line bg-canvas accent-[#3b82f6]"
+                  className="h-4 w-4 rounded-sm border-line bg-canvas accent-accent"
                 />
                 Stop the sequence for anyone who replies
               </label>
@@ -461,7 +461,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
                     type="checkbox"
                     checked={skipIncomplete}
                     onChange={(e) => setSkipIncomplete(e.target.checked)}
-                    className="h-4 w-4 accent-[#3b82f6]"
+                    className="h-4 w-4 accent-accent"
                   />
                   Skip {incomplete.length} contact{incomplete.length === 1 ? '' : 's'} missing personalisation data
                 </label>
@@ -540,10 +540,10 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
           </div>
           <div className="p-3 sm:p-5">
             <div className="mx-auto max-w-2xl rounded-lg border border-line bg-canvas">
-              <dl className="space-y-1 border-b border-line px-4 py-3 text-sm sm:px-5 [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere] [&_dt]:shrink-0">
+              <dl className="space-y-1 border-b border-line px-4 py-3 text-sm sm:px-5 [&_dd]:min-w-0 [&_dd]:wrap-anywhere [&_dt]:shrink-0">
                 <div className="flex gap-2">
                   <dt className="w-16 text-fg-subtle">From</dt>
-                  <dd className="text-fg">{user?.email}</dd>
+                  <dd className="text-fg">{user?.sendingEmail || user?.email}</dd>
                 </div>
                 <div className="flex gap-2">
                   <dt className="w-16 text-fg-subtle">To</dt>
@@ -554,7 +554,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
                   <dd className="font-medium text-fg">{render(active.subject, previewContact)}</dd>
                 </div>
               </dl>
-              <div className="whitespace-pre-wrap break-words px-4 py-4 text-sm leading-relaxed text-fg sm:px-5">
+              <div className="whitespace-pre-wrap wrap-break-word px-4 py-4 text-sm leading-relaxed text-fg sm:px-5">
                 {render(active.body, previewContact)}
               </div>
             </div>

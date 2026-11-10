@@ -89,8 +89,8 @@ export default function DashboardPage() {
   const setup = [
     {
       done: inboxStatus === 'connected',
-      title: 'Connect your Gmail inbox',
-      body: 'Sequences are sent from your own address.',
+      title: 'Connect your email inbox',
+      body: 'Gmail, Google Workspace or Zoho Mail — sequences are sent from your own address.',
       action: (
         <button onClick={() => setInboxModalOpen(true)} className="btn btn-secondary btn-sm">
           Connect

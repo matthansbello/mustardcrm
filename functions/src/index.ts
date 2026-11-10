@@ -1,16 +1,19 @@
-import * as admin from 'firebase-admin';
+import { getApps, initializeApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onMessagePublished } from 'firebase-functions/v2/pubsub';
 import { google } from 'googleapis';
 import * as crypto from 'crypto';
+import { findZohoReplySince, refreshZohoAccessToken, sendZohoMail, ZohoApiError } from './zoho';
 
-if (!admin.apps.length) {
-  admin.initializeApp();
+if (!getApps().length) {
+  initializeApp();
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
 // ---------- Crypto ----------
 function getEncryptionKey(): string {
@@ -53,17 +56,17 @@ function personalize(text: string, contact: DocData): string {
     .replace(/\{\{last_name\}\}/gi, contact.lastName || '');
 }
 
-function createRawMime(opts: {
-  from: string;
-  to: string;
-  subject: string;
+interface TrackingOpts {
   bodyHtml: string;
   eventId: string;
   orgId: string;
   sequenceId: string;
   contactId: string;
-}): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+}
+
+/** Body HTML with open pixel and click-tracked links (used for Gmail and Zoho). */
+function buildTrackedHtml(opts: TrackingOpts): string {
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
   const params = new URLSearchParams({
     eventId: opts.eventId,
     orgId: opts.orgId,
@@ -71,25 +74,51 @@ function createRawMime(opts: {
     contactId: opts.contactId,
   });
   const pixel = `<img src="${baseUrl}/api/track/open?${params}" width="1" height="1" style="display:none" alt="" />`;
-  let html = opts.bodyHtml.includes('<')
-    ? opts.bodyHtml
-    : opts.bodyHtml.replace(/\n/g, '<br/>');
+  // Plain-text bodies (maybe with an inline <a> link) keep their line breaks.
+  const isLayoutHtml = /<(p|div|br|table|ul|ol|li|h[1-6]|html|body)\b/i.test(opts.bodyHtml);
+  let html = isLayoutHtml ? opts.bodyHtml : opts.bodyHtml.replace(/\r?\n/g, '<br/>');
   html = html.replace(/href="(https?:\/\/[^"]+)"/g, (_, url) => {
     const p = new URLSearchParams(params);
     p.set('targetUrl', url);
     return `href="${baseUrl}/api/track/click?${p}"`;
   });
+  return `${html}\n${pixel}`;
+}
+
+function encodeHeader(value: string): string {
+  return /[^\x20-\x7e]/.test(value) ? `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=` : value;
+}
+
+function createRawMime(opts: TrackingOpts & { from: string; to: string; subject: string }): string {
   const mime = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
+    `Subject: ${encodeHeader(opts.subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
     '',
-    `${html}\n${pixel}`,
+    buildTrackedHtml(opts),
   ].join('\r\n');
   return Buffer.from(mime).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+
+/** Cached Zoho access token, refreshed shortly before expiry (they last an hour). */
+async function getZohoAccessToken(userId: string, token: DocData): Promise<string> {
+  if (token.encryptedAccessToken && token.expiresAt && token.expiresAt > Date.now() + 2 * 60 * 1000) {
+    return decryptToken(token.encryptedAccessToken);
+  }
+  const { accessToken, expiresAt } = await refreshZohoAccessToken(token.accountsServer, decryptToken(token.encryptedRefreshToken));
+  await db.collection('tokens').doc(userId).set(
+    { encryptedAccessToken: encryptToken(accessToken), expiresAt, updatedAt: new Date().toISOString() },
+    { merge: true }
+  );
+  token.encryptedAccessToken = encryptToken(accessToken);
+  token.expiresAt = expiresAt;
+  return accessToken;
+}
+
+const IN_FLIGHT_MS = 10 * 60 * 1000;
+const ZOHO_REPLY_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
 async function bumpStats(
   orgId: string,
@@ -99,7 +128,7 @@ async function bumpStats(
 ) {
   const seqRef = db.collection('organizations').doc(orgId).collection('sequences').doc(sequenceId);
   await seqRef.update({
-    [`stats.${field}`]: admin.firestore.FieldValue.increment(1),
+    [`stats.${field}`]: FieldValue.increment(1),
     updatedAt: new Date().toISOString(),
   });
 
@@ -113,7 +142,7 @@ async function bumpStats(
   };
   await statsRef.set(
     {
-      [map[field]]: admin.firestore.FieldValue.increment(1),
+      [map[field]]: FieldValue.increment(1),
       updatedAt: new Date().toISOString(),
     },
     { merge: true }
@@ -128,7 +157,7 @@ async function bumpStats(
       .set(
         {
           userId: senderUserId,
-          emailsSent: admin.firestore.FieldValue.increment(1),
+          emailsSent: FieldValue.increment(1),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -143,7 +172,7 @@ async function bumpStats(
       .set(
         {
           userId: senderUserId,
-          replies: admin.firestore.FieldValue.increment(1),
+          replies: FieldValue.increment(1),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -190,7 +219,7 @@ async function incrementDailySendCount(orgId: string, userId: string): Promise<v
       {
         userId,
         dayKey,
-        count: admin.firestore.FieldValue.increment(1),
+        count: FieldValue.increment(1),
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -262,67 +291,84 @@ async function sendOneEnrollment(params: {
     .doc(orgId)
     .collection('sendAttempts')
     .doc(sendAttemptId);
-  if ((await attemptRef.get()).exists) {
-    // Already sent — advance enrollment
-    await advanceEnrollment(orgId, sequenceId, enrollmentId, enrollment, step, sendAttemptId, undefined);
+
+  // Only a confirmed send counts as sent; a failed attempt is retried, and a fresh claim
+  // stops two overlapping runs from sending the same step.
+  const claim = await db.runTransaction(async (tx) => {
+    const existing = (await tx.get(attemptRef)).data();
+    if (existing?.status === 'sent') return 'already_sent';
+    if (existing?.status === 'sending' && Date.now() - Date.parse(existing.claimedAt || '') < IN_FLIGHT_MS) {
+      return 'in_flight';
+    }
+    tx.set(attemptRef, {
+      sendAttemptId,
+      status: 'sending',
+      claimedAt: new Date().toISOString(),
+      attempts: (existing?.attempts || 0) + 1,
+    });
+    return 'claimed';
+  });
+  if (claim === 'in_flight') return false;
+  if (claim === 'already_sent') {
+    await advanceEnrollment(orgId, sequenceId, enrollmentId, enrollment, step, sendAttemptId, undefined, senderUserId);
     return true;
   }
-
-  await attemptRef.set({
-    sendAttemptId,
-    status: 'sending',
-    claimedAt: new Date().toISOString(),
-  });
 
   try {
     const tokenDoc = await db.collection('tokens').doc(senderUserId).get();
     if (!tokenDoc.exists) throw new Error('token_missing');
-    const refreshToken = decryptToken(tokenDoc.data()!.encryptedRefreshToken);
-
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
-    );
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    const { credentials } = await oauth2Client.refreshAccessToken();
-    if (credentials.access_token) {
-      await db.collection('tokens').doc(senderUserId).set(
-        {
-          encryptedAccessToken: encryptToken(credentials.access_token),
-          expiresAt: credentials.expiry_date || null,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    }
-
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const token = tokenDoc.data()!;
     const subject = personalize(step.subject, contact);
     const body = personalize(step.body, contact);
     const eventId = `evt_${sendAttemptId}`;
-    const raw = createRawMime({
-      from: sender.email,
-      to: contact.email,
-      subject,
-      bodyHtml: body,
-      eventId,
-      orgId,
-      sequenceId,
-      contactId: contact.id,
-    });
+    const tracking = { bodyHtml: body, eventId, orgId, sequenceId, contactId: contact.id };
 
-    const response = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw },
-    });
+    let messageId = '';
+    let threadId: string | null = null;
+    let fromAddress: string = sender.sendingEmail || sender.email;
 
-    const messageId = response.data.id || '';
+    if (token.provider === 'zoho') {
+      if (!token.apiBase || !token.zohoAccountId || !token.fromAddress) throw new Error('zoho_mailbox_incomplete');
+      fromAddress = token.fromAddress;
+      messageId = await sendZohoMail({
+        apiBase: token.apiBase,
+        accessToken: await getZohoAccessToken(senderUserId, token),
+        accountId: token.zohoAccountId,
+        fromAddress: token.fromAddress,
+        to: contact.email,
+        subject,
+        html: buildTrackedHtml(tracking),
+      });
+    } else {
+      const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
+      oauth2Client.setCredentials({ refresh_token: decryptToken(token.encryptedRefreshToken) });
+      const { credentials } = await oauth2Client.refreshAccessToken();
+      if (credentials.access_token) {
+        await db.collection('tokens').doc(senderUserId).set(
+          {
+            encryptedAccessToken: encryptToken(credentials.access_token),
+            expiresAt: credentials.expiry_date || null,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+      const response = await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: createRawMime({ ...tracking, from: fromAddress, to: contact.email, subject }) },
+      });
+      messageId = response.data.id || '';
+      threadId = response.data.threadId || null;
+    }
+
     const now = new Date().toISOString();
 
     await attemptRef.set({
       sendAttemptId,
       status: 'sent',
       messageId,
+      provider: token.provider === 'zoho' ? 'zoho' : 'gmail',
       sentAt: now,
       sequenceId,
       contactId: contact.id,
@@ -344,27 +390,31 @@ async function sendOneEnrollment(params: {
         timestamp: now,
         metadata: {
           messageId,
-          threadId: response.data.threadId || null,
-          senderEmail: sender.email,
+          threadId,
+          provider: token.provider === 'zoho' ? 'zoho' : 'gmail',
+          senderEmail: fromAddress,
           recipientEmail: contact.email,
         },
       });
 
     await incrementDailySendCount(orgId, senderUserId);
     await bumpStats(orgId, sequenceId, 'sent', senderUserId);
-    await advanceEnrollment(orgId, sequenceId, enrollmentId, enrollment, step, sendAttemptId, messageId);
+    await advanceEnrollment(orgId, sequenceId, enrollmentId, enrollment, step, sendAttemptId, messageId, senderUserId);
 
-    // Update contact lifecycle
-    await contactSnap.ref.set(
-      { lifecycleStage: 'contacted', updatedAt: now },
-      { merge: true }
-    );
+    // Leads become "contacted" — never downgrade a contact who is already further along.
+    if (!contact.lifecycleStage || contact.lifecycleStage === 'lead') {
+      await contactSnap.ref.set({ lifecycleStage: 'contacted', updatedAt: now }, { merge: true });
+    }
 
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'send_failed';
-    await attemptRef.set({ status: 'failed', error: message }, { merge: true });
-    if (message.includes('invalid_grant') || message.includes('token')) {
+    await attemptRef.set({ status: 'failed', error: message.slice(0, 500), failedAt: new Date().toISOString() }, { merge: true });
+    if (
+      (err instanceof ZohoApiError && err.needsReauth) ||
+      message.includes('invalid_grant') ||
+      message.includes('token')
+    ) {
       await senderSnap.ref.set(
         { inboxStatus: 'needs_reauth', updatedAt: new Date().toISOString() },
         { merge: true }
@@ -382,7 +432,8 @@ async function advanceEnrollment(
   enrollment: DocData,
   step: DocData,
   sendAttemptId: string,
-  messageId?: string
+  messageId?: string,
+  senderUserId?: string
 ) {
   const now = new Date();
   const history = [
@@ -392,6 +443,7 @@ async function advanceEnrollment(
       sentAt: now.toISOString(),
       messageId: messageId || null,
       sendAttemptId,
+      senderUserId: senderUserId || null,
     },
   ];
   const nextIndex = (enrollment.currentStepIndex || 0) + 1;
@@ -441,10 +493,101 @@ async function advanceEnrollment(
     });
 }
 
+/** Record a reply: stop the enrollment, count it, move contact + deals to "replied", log activity. */
+async function recordReply(p: {
+  orgId: string;
+  sequenceId: string;
+  contactId: string;
+  senderUserId?: string;
+  replyId: string;
+  source: string;
+}) {
+  const org = db.collection('organizations').doc(p.orgId);
+  const now = new Date().toISOString();
+  await org.collection('sequences').doc(p.sequenceId).collection('enrollments').doc(p.contactId).set(
+    { status: 'replied', nextSendDueAt: null, repliedAt: now, updatedAt: now },
+    { merge: true }
+  );
+  await bumpStats(p.orgId, p.sequenceId, 'replied', p.senderUserId);
+  await org.collection('emailEvents').doc(`reply_${p.replyId}`).set({
+    id: `reply_${p.replyId}`,
+    orgId: p.orgId,
+    sequenceId: p.sequenceId,
+    contactId: p.contactId,
+    type: 'reply',
+    timestamp: now,
+    metadata: { replyId: p.replyId, source: p.source },
+  });
+  const contactRef = org.collection('contacts').doc(p.contactId);
+  await contactRef.set({ lifecycleStage: 'replied', updatedAt: now }, { merge: true });
+  const deals = await org.collection('deals').where('contactId', '==', p.contactId).get();
+  for (const d of deals.docs) await d.ref.update({ stage: 'replied', updatedAt: now });
+  await contactRef.collection('activity').doc(`act_reply_${p.replyId}`).set({
+    id: `act_reply_${p.replyId}`,
+    contactId: p.contactId,
+    type: 'email_replied',
+    title: 'Prospect replied',
+    description: `Reply detected via ${p.source}`,
+    timestamp: now,
+  });
+}
+
+/**
+ * Zoho has no push notifications, so check a Zoho sender's mailbox for a reply from this
+ * contact since the last send. Returns true when a reply was found and recorded.
+ */
+async function checkZohoReply(
+  orgId: string,
+  sequenceId: string,
+  enrDoc: FirebaseFirestore.QueryDocumentSnapshot,
+  senderUserId: string,
+  token: DocData,
+  due: boolean
+): Promise<boolean> {
+  const enrollment = enrDoc.data();
+  const lastSentAt: string | undefined = enrollment.history?.[enrollment.history.length - 1]?.sentAt;
+  if (!lastSentAt || !token.apiBase || !token.zohoAccountId) return false;
+  const lastCheck = Date.parse(enrollment.lastReplyCheckAt || '') || 0;
+  if (!due && Date.now() - lastCheck < ZOHO_REPLY_CHECK_INTERVAL_MS) return false;
+
+  try {
+    const contact = await db.collection('organizations').doc(orgId).collection('contacts').doc(enrollment.contactId).get();
+    if (!contact.exists) return false;
+    const reply = await findZohoReplySince({
+      apiBase: token.apiBase,
+      accessToken: await getZohoAccessToken(senderUserId, token),
+      accountId: token.zohoAccountId,
+      fromEmail: String(contact.get('email') || ''),
+      sinceMs: Date.parse(lastSentAt),
+    });
+    await enrDoc.ref.set({ lastReplyCheckAt: new Date().toISOString() }, { merge: true });
+    if (!reply) return false;
+    await recordReply({
+      orgId,
+      sequenceId,
+      contactId: enrollment.contactId,
+      senderUserId,
+      replyId: `zoho_${reply.messageId}`,
+      source: 'Zoho Mail',
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof ZohoApiError && err.needsReauth) {
+      await db.collection('organizations').doc(orgId).collection('users').doc(senderUserId).set(
+        { inboxStatus: 'needs_reauth', updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+    }
+    console.warn('Zoho reply check failed:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 async function runSequenceTick(): Promise<{ processed: number }> {
   const orgs = await db.collection('organizations').get();
   let processed = 0;
   const nowIso = new Date().toISOString();
+  const tokenCache = new Map<string, DocData | null>();
 
   for (const orgDoc of orgs.docs) {
     const orgId = orgDoc.id;
@@ -464,7 +607,23 @@ async function runSequenceTick(): Promise<{ processed: number }> {
 
       for (const enrDoc of enrollments.docs) {
         const enrollment = enrDoc.data();
-        if (!enrollment.nextSendDueAt || enrollment.nextSendDueAt > nowIso) continue;
+        const due = Boolean(enrollment.nextSendDueAt && enrollment.nextSendDueAt <= nowIso);
+
+        // Zoho reply detection for the mailbox that sent the last step.
+        const lastSender: string | undefined =
+          enrollment.history?.[enrollment.history.length - 1]?.senderUserId || sequence.settings?.senderUserIds?.[0];
+        if (lastSender && enrollment.history?.length) {
+          if (!tokenCache.has(lastSender)) {
+            const t = await db.collection('tokens').doc(lastSender).get();
+            tokenCache.set(lastSender, t.exists ? t.data()! : null);
+          }
+          const token = tokenCache.get(lastSender);
+          if (token?.provider === 'zoho' && (await checkZohoReply(orgId, seqDoc.id, enrDoc, lastSender, token, due))) {
+            continue;
+          }
+        }
+
+        if (!due) continue;
 
         const sent = await sendOneEnrollment({
           orgId,
@@ -525,7 +684,7 @@ export const onImportJobCreated = onDocumentCreated(
     await jobRef.update({ status: 'validating', updatedAt: new Date().toISOString() });
 
     try {
-      const bucket = admin.storage().bucket();
+      const bucket = getStorage().bucket();
       const [buffer] = await bucket.file(job.storagePath).download();
       const Papa = await import('papaparse');
       const XLSX = await import('xlsx');
@@ -879,6 +1038,7 @@ export const refreshGoogleTokens = onSchedule('every 6 hours', async () => {
   const now = Date.now();
   for (const doc of tokens.docs) {
     const data = doc.data();
+    if (data.provider === 'zoho') continue; // Zoho access tokens are refreshed on demand when sending
     if (data.expiresAt && data.expiresAt > now + 30 * 60 * 1000) continue;
     try {
       const oauth2Client = new google.auth.OAuth2(

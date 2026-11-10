@@ -1,4 +1,7 @@
-import * as admin from 'firebase-admin';
+import { cert, getApps, initializeApp, type ServiceAccount } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 
 /**
  * Firebase Admin credentials, in order of preference:
@@ -16,7 +19,7 @@ const projectId =
 /** Which credential source was used, and which env vars were missing — names only, never values. */
 export const adminCredentialInfo: { source: string; missing: string[] } = { source: 'none', missing: [] };
 
-function loadServiceAccount(): admin.ServiceAccount | null {
+function loadServiceAccount(): ServiceAccount | null {
   const json = clean(process.env.FIREBASE_SERVICE_ACCOUNT);
   if (json) {
     try {
@@ -48,7 +51,7 @@ function loadServiceAccount(): admin.ServiceAccount | null {
 
 const usingEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST);
 
-if (!admin.apps.length) {
+if (!getApps().length) {
   const account = loadServiceAccount();
 
   if (account) {
@@ -59,8 +62,8 @@ if (!admin.apps.length) {
           'Generate a key for the right project (Firebase console → Project settings → Service accounts).'
       );
     }
-    admin.initializeApp({
-      credential: admin.credential.cert(account),
+    initializeApp({
+      credential: cert(account),
       projectId,
       storageBucket: clean(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) || undefined,
     });
@@ -72,13 +75,13 @@ if (!admin.apps.length) {
           'sign-in and other server features will fail.'
       );
     }
-    admin.initializeApp({ projectId });
+    initializeApp({ projectId });
   }
 }
 
-export const adminDb = admin.firestore();
-export const adminAuth = admin.auth();
-export const adminStorage = admin.storage();
+export const adminDb = getFirestore();
+export const adminAuth = getAuth();
+export const adminStorage = getStorage();
 
 /**
  * Turn Admin SDK credential failures (gRPC 16 UNAUTHENTICATED, invalid_grant, missing

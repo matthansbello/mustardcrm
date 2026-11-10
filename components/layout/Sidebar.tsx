@@ -72,11 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
   };
 
   const dailyCap = organization?.settings?.defaultDailyCapPerMailbox ?? 50;
+  const providerName = user?.mailProvider === 'zoho' ? 'Zoho Mail' : 'Gmail';
 
   return (
     <aside
       aria-label="Main navigation"
-      className={`fixed left-0 top-0 z-50 flex h-[100dvh] w-[min(18rem,85vw)] flex-col border-r border-line bg-surface transition-transform duration-200 lg:w-60 lg:translate-x-0 ${
+      className={`fixed left-0 top-0 z-50 flex h-dvh w-[min(18rem,85vw)] flex-col border-r border-line bg-surface transition-transform duration-200 lg:w-60 lg:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
@@ -124,12 +125,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
         ))}
       </nav>
 
-      {/* Gmail status */}
+      {/* Sending inbox status */}
       <div className="px-3 pb-3">
         <div className="rounded-lg border border-line bg-surface-2 p-3">
           <div className="flex items-center gap-2">
             <Mail className="h-4 w-4 text-fg-muted" strokeWidth={1.75} />
-            <span className="text-[13px] font-medium text-fg">Gmail sending</span>
+            <span className="text-[13px] font-medium text-fg">
+              {inboxStatus === 'disconnected' ? 'Email sending' : `${providerName} sending`}
+            </span>
             <span
               className={`ml-auto h-2 w-2 rounded-full ${
                 inboxStatus === 'connected'
@@ -141,16 +144,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
             />
           </div>
           {inboxStatus === 'connected' ? (
-            <p className="mt-1.5 text-xs text-fg-muted">Up to {dailyCap} emails per day from your inbox.</p>
+            <p className="mt-1.5 text-xs text-fg-muted">
+              Up to {dailyCap} emails per day from{' '}
+              <span className="break-all text-fg">{user?.sendingEmail || user?.email}</span>.
+            </p>
           ) : (
             <>
               <p className="mt-1.5 text-xs text-fg-muted">
                 {inboxStatus === 'needs_reauth'
-                  ? 'Google access expired. Reconnect to keep sending.'
-                  : 'Connect Gmail to send sequences.'}
+                  ? `${providerName} access expired. Reconnect to keep sending.`
+                  : 'Connect Gmail or Zoho Mail to send sequences.'}
               </p>
               <button onClick={() => setInboxModalOpen(true)} className="btn btn-secondary btn-sm mt-2.5 w-full">
-                {inboxStatus === 'needs_reauth' ? 'Reconnect Gmail' : 'Connect Gmail'}
+                {inboxStatus === 'needs_reauth' ? `Reconnect ${providerName}` : 'Connect inbox'}
               </button>
             </>
           )}
@@ -209,7 +215,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
         </button>
       </div>
 
-      <InboxConnectModal isOpen={inboxModalOpen} onClose={() => setInboxModalOpen(false)} />
+      <InboxConnectModal
+        isOpen={inboxModalOpen}
+        onClose={() => setInboxModalOpen(false)}
+        initialProvider={user?.mailProvider || 'gmail'}
+      />
     </aside>
   );
 };

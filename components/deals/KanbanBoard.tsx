@@ -105,7 +105,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ deals, onDealUpdated }
                       value={deal.stage}
                       onChange={(e) => moveDeal(deal.id, e.target.value as DealStage)}
                       aria-label={`Move ${deal.title}`}
-                      className="h-8 cursor-pointer appearance-none rounded border border-line bg-transparent px-2 text-xs text-fg-muted hover:text-fg focus:border-accent focus:outline-none lg:h-6 lg:border-transparent lg:px-1.5 lg:text-fg-subtle lg:hover:border-line"
+                      className="h-8 cursor-pointer appearance-none rounded-sm border border-line bg-transparent px-2 text-xs text-fg-muted hover:text-fg focus:border-accent focus:outline-hidden lg:h-6 lg:border-transparent lg:px-1.5 lg:text-fg-subtle lg:hover:border-line"
                     >
                       {DEAL_STAGES.map((s) => (
                         <option key={s.key} value={s.key}>

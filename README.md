@@ -2,29 +2,30 @@
 
 CRM + cold email platform for sales teams on Google Workspace.
 
-Mustard combines contact/pipeline CRM with multi-step cold email sequences sent **natively from connected Gmail accounts** — with open/click/reply tracking, deliverability-safe sending caps, and a motion-rich dark UI.
+Mustard combines contact/pipeline CRM with multi-step cold email sequences sent **natively from connected Gmail or Zoho Mail inboxes** — with open/click/reply tracking, deliverability-safe sending caps, and a motion-rich dark UI.
 
 ## Stack
 
 | Layer | Tech |
 |-------|------|
-| App | Next.js 14 (App Router), TypeScript, Tailwind CSS |
+| App | Next.js 16 (App Router), React 19, TypeScript 7, Tailwind CSS 4 |
+| Runtime | Node.js 24 (Netlify and Cloud Functions) |
 | State | Zustand, TanStack Query / Table |
 | Motion | GSAP (ScrollTrigger, Flip, custom hooks) |
 | Backend | Firebase Auth, Firestore, Cloud Storage, Cloud Functions (2nd gen) |
-| Email | Gmail API via OAuth 2.0 (`googleapis`) |
+| Email | Gmail API (`googleapis`) and Zoho Mail REST API, both via OAuth 2.0 |
 | Import | PapaParse + SheetJS (CSV/XLSX) |
 
 ## Features
 
 - Sign in with Google, Microsoft, Apple, GitHub, email + password, or a passwordless email link
 - One shared workspace: every user sees every contact, company, deal, and sequence
-- Gmail OAuth for sending (any user can connect a Gmail inbox, whatever they signed in with)
+- Send from Gmail / Google Workspace **or Zoho Mail** (any user can connect either, whatever they signed in with)
 - Contacts, companies, deals (Kanban with GSAP Flip drag)
 - CSV/XLSX bulk import with mapping, validation, and live progress
 - Sequence builder with personalization tokens and launch guards
 - Scheduled send engine (`onSequenceTick`) with idempotent sends
-- Open/click tracking pixels + reply detection via Gmail Pub/Sub
+- Open/click tracking pixels + reply detection (Gmail Pub/Sub push; Zoho Mail mailbox search every 30 min and before each follow-up)
 - Team invites, roles, deactivate + reassignment
 - Dashboard KPIs from aggregation stats
 
@@ -47,7 +48,8 @@ Fill in Firebase client/admin credentials, Google OAuth client, and:
 
 | Variable | Notes |
 |----------|--------|
-| `TOKEN_ENCRYPTION_KEY` | ≥32 chars — encrypts Gmail refresh tokens |
+| `TOKEN_ENCRYPTION_KEY` | ≥32 chars — encrypts Gmail / Zoho refresh tokens |
+| `ZOHO_CLIENT_ID` / `ZOHO_CLIENT_SECRET` | Optional — enables “Connect Zoho Mail” (see below) |
 | `CRON_SECRET` | Protects `/api/cron/sequence-tick` |
 | `GOOGLE_REDIRECT_URI` | Default: `http://localhost:3000/api/auth/google/callback` |
 | `FIREBASE_SERVICE_ACCOUNT` | Optional: whole service-account JSON in one value (instead of `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY`). Verify with `npm run check:firebase` |
@@ -67,6 +69,16 @@ node -e "const c=require('crypto'); console.log(c.randomBytes(32).toString('base
 3. Configure OAuth consent screen + Web client; add the redirect URI above.
 4. Create Pub/Sub topic `gmail-push` for Gmail `users.watch` (reply detection).
 5. Set `.firebaserc` project id and deploy rules/functions when ready.
+
+### Zoho Mail (optional)
+
+1. Go to the [Zoho API Console](https://api-console.zoho.com) → **Add Client** → **Server-based Applications**.
+2. Homepage URL: your app URL. Authorized Redirect URI: `https://<your-domain>/api/auth/zoho/callback`
+   (add `http://localhost:3000/api/auth/zoho/callback` for local testing).
+3. Open the client's **Settings** tab and enable **Multi-DC** so mailboxes in the EU, India, Australia, etc. can connect.
+4. Copy the Client ID / Secret into `ZOHO_CLIENT_ID` / `ZOHO_CLIENT_SECRET` (Netlify **and** Cloud Functions env).
+
+Scopes requested: `ZohoMail.messages.CREATE`, `ZohoMail.messages.READ`, `ZohoMail.accounts.READ`.
 
 ### 4. Run locally
 
@@ -98,7 +110,7 @@ node scripts/migrate-to-shared-workspace.mjs --apply  # copy everything into MUS
 | `npm run dev` | Next.js development server |
 | `npm run build` | Production build |
 | `npm run start` | Serve production build |
-| `npm run lint` | ESLint |
+| `npm run typecheck` | Type-check the app (`tsc --noEmit`) |
 | `npm run functions:build` | Compile Cloud Functions |
 | `npm run functions:deploy` | Deploy Functions only |
 | `npm run firebase:deploy` | Deploy Firestore, Storage, Functions |
@@ -122,6 +134,9 @@ storage.rules        # Storage rules
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /api/auth/google` | Start Gmail OAuth |
+| `GET /api/auth/zoho` | Start Zoho Mail OAuth |
+| `GET /api/auth/zoho/callback` | Zoho OAuth code exchange |
+| `POST /api/mailbox/disconnect` | Disconnect (and revoke) the caller's sending inbox |
 | `GET /api/auth/google/callback` | OAuth code exchange |
 | `POST /api/auth/session` | Firebase session cookie |
 | `POST /api/auth/sync` | Create/refresh the user's profile in the shared workspace (sets role + claims server-side) |
@@ -133,7 +148,7 @@ storage.rules        # Storage rules
 ## Security notes
 
 - Never commit `.env.local` or service account keys.
-- Gmail tokens live in `tokens/{uid}` — Admin SDK only (Firestore rules deny client access).
+- Mailbox tokens (Gmail or Zoho) live encrypted in `tokens/{uid}` — Admin SDK only (Firestore rules deny client access).
 - Prefer storing `TOKEN_ENCRYPTION_KEY` and `CRON_SECRET` as Firebase Functions secrets in production.
 
 ## License

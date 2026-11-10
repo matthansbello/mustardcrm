@@ -1,12 +1,14 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "nodenext",
     "noImplicitReturns": true,
     "noUnusedLocals": false,
     "outDir": "lib",
+    "rootDir": "src",
     "sourceMap": true,
     "strict": true,
-    "target": "es2021",
+    "target": "es2023",
+    "types": ["node"],
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true

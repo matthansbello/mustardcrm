@@ -14,5 +14,5 @@ export const LEGAL = {
   /** e.g. "England and Wales", "the State of Delaware". */
   governingLaw: '[Governing law jurisdiction]',
   /** Bump this whenever either document changes. */
-  lastUpdated: 'October 16, 2026',
+  lastUpdated: 'November 10, 2026',
 };

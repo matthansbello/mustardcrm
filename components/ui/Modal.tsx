@@ -62,7 +62,7 @@ export function Modal({
   return createPortal(
     <div
       ref={backdropRef}
-      className={`fixed inset-0 z-[60] flex bg-black/60 ${
+      className={`fixed inset-0 z-60 flex bg-black/60 ${
         right ? 'justify-end' : 'items-end justify-center sm:items-center sm:p-4'
       }`}
       onMouseDown={(e) => {
@@ -76,7 +76,7 @@ export function Modal({
         aria-label={title}
         className={`flex flex-col bg-surface border-line shadow-popover ${
           right
-            ? 'h-[100dvh] w-full max-w-md border-l'
+            ? 'h-dvh w-full max-w-md border-l'
             : `w-full ${SIZES[size]} max-h-[92dvh] rounded-t-xl border-x border-t sm:max-h-[90dvh] sm:rounded-xl sm:border`
         }`}
       >

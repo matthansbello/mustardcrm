@@ -16,7 +16,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const router = useRouter();
-  const { inboxStatus } = useAuthStore();
+  const { user, inboxStatus } = useAuthStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -74,9 +74,9 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           type="button"
           onClick={() => setIsModalOpen(true)}
           className="hidden rounded-md sm:block"
-          title="Manage Gmail connection"
+          title="Manage inbox connection"
         >
-          <ConnectionStatusBadge status={inboxStatus} />
+          <ConnectionStatusBadge status={inboxStatus} provider={user?.mailProvider} />
         </button>
         <Link href="/contacts?new=1" className="btn btn-primary btn-sm max-sm:w-9 max-sm:px-0" aria-label="New contact">
           <Plus className="h-4 w-4" />
@@ -84,7 +84,11 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
         </Link>
       </div>
 
-      <InboxConnectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <InboxConnectModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        initialProvider={user?.mailProvider || 'gmail'}
+      />
     </header>
   );
 };

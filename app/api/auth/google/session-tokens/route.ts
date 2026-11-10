@@ -30,6 +30,11 @@ export async function POST(request: Request) {
     const existing = await adminDb.collection('tokens').doc(decoded.uid).get();
     const existingData = existing.data() || {};
 
+    // Signing in with Google must not replace a Zoho Mail mailbox the user connected on purpose.
+    if (existingData.provider === 'zoho') {
+      return NextResponse.json({ success: true, inboxConnected: false, skipped: 'zoho_connected' });
+    }
+
     const hasSendScope =
       scope.includes('gmail.send') ||
       String(existingData.scope || '').includes('gmail.send');
@@ -41,6 +46,7 @@ export async function POST(request: Request) {
         {
           userId: decoded.uid,
           orgId,
+          provider: 'gmail',
           encryptedRefreshToken: refreshToken
             ? encryptToken(refreshToken)
             : existingData.encryptedRefreshToken || null,
@@ -62,6 +68,7 @@ export async function POST(request: Request) {
         .set(
           {
             inboxStatus: 'connected',
+            mailProvider: 'gmail',
             lastConnectedAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },

@@ -18,7 +18,7 @@ import {
 } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db, googleProvider, oauthProviders, OAuthProviderId } from './client';
-import { User, Organization } from '@/types';
+import { User, Organization, MailProvider } from '@/types';
 
 const EMAIL_LINK_STORAGE_KEY = 'mustard_email_for_sign_in';
 
@@ -191,18 +191,44 @@ export async function flushPendingMailboxTokens(
   }
 }
 
-/** Start the Gmail OAuth flow so any user (whatever they signed in with) can send from a Gmail inbox. */
-export async function startGmailConnect(returnTo?: string): Promise<void> {
+export const MAIL_PROVIDER_LABEL: Record<MailProvider, string> = { gmail: 'Gmail', zoho: 'Zoho Mail' };
+
+/**
+ * Start connecting a sending inbox (Gmail / Google Workspace or Zoho Mail). Works for any
+ * user, whatever they signed in with. Redirects the browser to the provider's consent screen.
+ */
+export async function startMailboxConnect(provider: MailProvider, returnTo?: string): Promise<void> {
   const current = auth.currentUser;
-  if (!current) throw new Error('Please sign in before connecting Gmail.');
+  const label = MAIL_PROVIDER_LABEL[provider];
+  if (!current) throw new Error(`Please sign in before connecting ${label}.`);
   const idToken = await current.getIdToken();
   const qs = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
-  const res = await fetch(`/api/auth/google${qs}`, { headers: { Authorization: `Bearer ${idToken}` } });
+  const res = await fetch(`/api/auth/${provider === 'zoho' ? 'zoho' : 'google'}${qs}`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.url) {
-    throw new Error(data.error || 'Failed to start Gmail OAuth');
+    throw new Error(data.error || `Failed to start ${label} connection`);
   }
   window.location.href = data.url;
+}
+
+export async function startGmailConnect(returnTo?: string): Promise<void> {
+  return startMailboxConnect('gmail', returnTo);
+}
+
+/** Remove the connected sending inbox (revokes the provider token on the server). */
+export async function disconnectMailbox(): Promise<void> {
+  const current = auth.currentUser;
+  if (!current) throw new Error('Please sign in first.');
+  const res = await fetch('/api/mailbox/disconnect', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await current.getIdToken()}` },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not disconnect the inbox');
+  }
 }
 
 export async function signOutUser(): Promise<void> {

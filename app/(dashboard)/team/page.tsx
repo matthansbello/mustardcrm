@@ -88,7 +88,7 @@ export default function TeamPage() {
                     <p className="truncate text-xs text-fg-subtle">{member.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <span className={`badge capitalize ${ROLE_BADGE[member.role] || 'badge-neutral'}`}>{member.role}</span>
-                      {member.status !== 'invited' && <ConnectionStatusBadge status={member.inboxStatus} />}
+                      {member.status !== 'invited' && <ConnectionStatusBadge status={member.inboxStatus} provider={member.mailProvider} />}
                     </div>
                   </div>
                   {canManage && !isYou && (
@@ -110,7 +110,7 @@ export default function TeamPage() {
                 <tr>
                   <th>Member</th>
                   <th>Role</th>
-                  <th>Gmail</th>
+                  <th>Sending inbox</th>
                   <th className="w-px" />
                 </tr>
               </thead>
@@ -139,7 +139,7 @@ export default function TeamPage() {
                         {member.status === 'invited' ? (
                           <span className="text-sm text-fg-subtle">—</span>
                         ) : (
-                          <ConnectionStatusBadge status={member.inboxStatus} />
+                          <ConnectionStatusBadge status={member.inboxStatus} provider={member.mailProvider} />
                         )}
                       </td>
                       <td className="text-right">

@@ -2,13 +2,18 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  SortingState,
-  useReactTable,
+  columnFilteringFeature,
+  createFilteredRowModel,
+  createSortedRowModel,
+  FlexRender,
+  globalFilteringFeature,
+  rowSortingFeature,
+  sortFns,
+  tableFeatures,
+  useTable,
+  type ColumnDef,
+  type FilterFn,
+  type SortingState,
 } from '@tanstack/react-table';
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { Contact } from '@/types';
@@ -27,10 +32,31 @@ function formatDate(iso: string): string {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// TanStack Table v9 is opt-in: register only the features this table uses.
+const features = tableFeatures({
+  rowSortingFeature,
+  columnFilteringFeature, // required by global filtering
+  globalFilteringFeature,
+  sortedRowModel: createSortedRowModel(),
+  filteredRowModel: createFilteredRowModel(),
+  sortFns,
+});
+
+type Features = typeof features;
+
+/** Matches the search term against name, email, company, title and tags. */
+const contactSearch: FilterFn<Features, Contact> = (row, _columnId, filter) => {
+  const term = String(filter).toLowerCase();
+  const c = row.original;
+  return [c.firstName, c.lastName, c.email, c.companyName, c.title, ...(c.tags || [])]
+    .filter(Boolean)
+    .some((v) => String(v).toLowerCase().includes(term));
+};
+
 export function ContactsTable({ contacts, selectedId, onSelect, globalFilter }: ContactsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  const columns = useMemo<ColumnDef<Contact>[]>(
+  const columns = useMemo<ColumnDef<Features, Contact>[]>(
     () => [
       {
         accessorFn: (row) => `${row.firstName} ${row.lastName}`.trim(),
@@ -53,12 +79,14 @@ export function ContactsTable({ contacts, selectedId, onSelect, globalFilter }: 
       {
         accessorKey: 'email',
         header: 'Email',
-        cell: ({ getValue }) => <span className="text-fg-muted">{getValue<string>()}</span>,
+        cell: ({ row }) => <span className="text-fg-muted">{row.original.email}</span>,
       },
       {
         accessorKey: 'companyName',
         header: 'Company',
-        cell: ({ getValue }) => <span className="text-fg">{getValue<string>() || <span className="text-fg-subtle">—</span>}</span>,
+        cell: ({ row }) => (
+          <span className="text-fg">{row.original.companyName || <span className="text-fg-subtle">—</span>}</span>
+        ),
       },
       {
         accessorKey: 'lifecycleStage',
@@ -87,27 +115,19 @@ export function ContactsTable({ contacts, selectedId, onSelect, globalFilter }: 
       {
         accessorKey: 'createdAt',
         header: 'Added',
-        cell: ({ getValue }) => <span className="whitespace-nowrap text-fg-muted">{formatDate(getValue<string>())}</span>,
+        cell: ({ row }) => <span className="whitespace-nowrap text-fg-muted">{formatDate(row.original.createdAt)}</span>,
       },
     ],
     []
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features,
     data: contacts,
     columns,
     state: { sorting, globalFilter },
     onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    globalFilterFn: (row, _columnId, filter) => {
-      const term = String(filter).toLowerCase();
-      const c = row.original;
-      return [c.firstName, c.lastName, c.email, c.companyName, c.title, ...(c.tags || [])]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(term));
-    },
+    globalFilterFn: contactSearch,
   });
 
   const rows = table.getRowModel().rows;
@@ -161,7 +181,7 @@ export function ContactsTable({ contacts, selectedId, onSelect, globalFilter }: 
                           onClick={header.column.getToggleSortingHandler()}
                           className="inline-flex items-center gap-1 hover:text-fg"
                         >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <FlexRender header={header} />
                           {sorted === 'asc' ? (
                             <ArrowUp className="h-3 w-3" />
                           ) : sorted === 'desc' ? (
@@ -171,7 +191,7 @@ export function ContactsTable({ contacts, selectedId, onSelect, globalFilter }: 
                           )}
                         </button>
                       ) : (
-                        flexRender(header.column.columnDef.header, header.getContext())
+                        <FlexRender header={header} />
                       )}
                     </th>
                   );
@@ -186,8 +206,10 @@ export function ContactsTable({ contacts, selectedId, onSelect, globalFilter }: 
                 onClick={() => onSelect(row.original)}
                 className={`cursor-pointer ${selectedId === row.original.id ? 'bg-accent-soft' : 'hover:bg-surface-2'}`}
               >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                {row.getAllCells().map((cell) => (
+                  <td key={cell.id}>
+                    <FlexRender cell={cell} />
+                  </td>
                 ))}
               </tr>
             ))}

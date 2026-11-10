@@ -1,6 +1,62 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  Flat design tokens — solid surfaces, one accent colour, no gradients.
+  Use these (canvas / surface / line / fg / accent) for all new UI.
+*/
+@theme {
+  --color-canvas: #0b0d12;
+
+  --color-surface-2: #171a21;
+  --color-surface-3: #1e222b;
+  --color-surface: #111419;
+
+  --color-line: #242833;
+  --color-line-strong: #333948;
+
+  --color-fg: #e8eaef;
+  --color-fg-muted: #969dae;
+  --color-fg-subtle: #6b7283;
+
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2f6fe0;
+  --color-accent-soft: rgba(59, 130, 246, 0.12);
+  --color-accent-fg: #7cb0ff;
+
+  --font-sans:
+    var(--font-inter), system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-display:
+    var(--font-bricolage), var(--font-inter), system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --shadow-popover: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  /* Tailwind v4 no longer gives buttons a pointer cursor; keep the v3 behaviour. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 @layer base {
   :root {
@@ -23,7 +79,7 @@
   }
 
   :focus-visible {
-    @apply outline-none;
+    @apply outline-hidden;
   }
 
   ::-webkit-scrollbar {
@@ -89,7 +145,7 @@
   .input {
     @apply w-full h-10 sm:h-9 rounded-lg bg-canvas border border-line px-3 text-base sm:text-sm text-fg placeholder:text-fg-subtle
       transition-colors hover:border-line-strong
-      focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20
+      focus:outline-hidden focus:border-accent focus:ring-2 focus:ring-accent/20
       disabled:opacity-60;
   }
   textarea.input {
@@ -172,11 +228,11 @@
     @apply h-7 px-3 rounded-md text-[13px] font-medium text-fg-muted hover:text-fg transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap;
   }
   .segmented > button[aria-pressed='true'] {
-    @apply bg-surface-3 text-fg shadow-sm;
+    @apply bg-surface-3 text-fg shadow-xs;
   }
 
   .kbd {
-    @apply inline-flex items-center h-5 px-1.5 rounded border border-line bg-surface-2 text-[11px] text-fg-subtle font-sans;
+    @apply inline-flex items-center h-5 px-1.5 rounded-sm border border-line bg-surface-2 text-[11px] text-fg-subtle font-sans;
   }
 }
 

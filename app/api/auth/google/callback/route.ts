@@ -41,6 +41,9 @@ export async function GET(request: Request) {
   if (!state) {
     return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=invalid_state`);
   }
+  if (state.provider && state.provider !== 'gmail') {
+    return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=invalid_state`);
+  }
   const userId = state.userId || '';
   const orgId = state.orgId || '';
 
@@ -65,23 +68,36 @@ export async function GET(request: Request) {
 
     const existing = await adminDb.collection('tokens').doc(userId).get();
     const existingData = existing.data() || {};
+    // Only reuse a previous *Gmail* refresh token — never a Zoho one when switching providers.
+    const previousGmailRefresh =
+      (existingData.provider || 'gmail') === 'gmail' ? existingData.encryptedRefreshToken : undefined;
+    const refresh = encryptedRefreshToken || previousGmailRefresh;
+    if (!refresh) {
+      return NextResponse.redirect(`${appUrl}/settings?gmail=error&reason=no_refresh_token`);
+    }
 
-    await adminDb
-      .collection('tokens')
-      .doc(userId)
-      .set(
-        {
-          userId,
-          orgId,
-          encryptedRefreshToken:
-            encryptedRefreshToken || existingData.encryptedRefreshToken || null,
-          encryptedAccessToken: encryptedAccessToken || null,
-          expiresAt: tokens.expiry_date || null,
-          scope: tokens.scope || 'gmail.send gmail.readonly',
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+    // Which Gmail address was authorised (may differ from the sign-in email).
+    let gmailAddress: string | null = null;
+    try {
+      if (tokens.access_token) {
+        gmailAddress = (await oauth2Client.getTokenInfo(tokens.access_token)).email?.toLowerCase() || null;
+      }
+    } catch {
+      // Optional — falls back to the sign-in email when sending
+    }
+
+    // Full overwrite (no merge) so fields from a previous Zoho connection don't linger.
+    await adminDb.collection('tokens').doc(userId).set({
+      userId,
+      orgId,
+      provider: 'gmail',
+      encryptedRefreshToken: refresh,
+      encryptedAccessToken: encryptedAccessToken || null,
+      expiresAt: tokens.expiry_date || null,
+      scope: tokens.scope || 'gmail.send gmail.readonly',
+      fromAddress: gmailAddress,
+      updatedAt: new Date().toISOString(),
+    });
 
     await adminDb
       .collection('organizations')
@@ -91,6 +107,8 @@ export async function GET(request: Request) {
       .set(
         {
           inboxStatus: 'connected',
+          mailProvider: 'gmail',
+          sendingEmail: gmailAddress,
           lastConnectedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },

@@ -65,7 +65,7 @@ service cloud.firestore {
           || (isManager(orgId) && request.resource.data.role != 'admin' && resource.data.role != 'admin')
           || (request.auth.uid == userId && isMember(orgId)
               && !request.resource.data.diff(resource.data).affectedKeys()
-                  .hasAny(['id', 'orgId', 'email', 'role', 'status']));
+                  .hasAny(['id', 'orgId', 'email', 'role', 'status', 'mailProvider', 'sendingEmail']));
         allow delete: if isAdmin(orgId);
       }
 

@@ -6,6 +6,9 @@ export type UserRole = 'admin' | 'manager' | 'rep';
 
 export type InboxConnectionStatus = 'connected' | 'needs_reauth' | 'disconnected';
 
+/** Where a user's sequence emails are sent from. */
+export type MailProvider = 'gmail' | 'zoho';
+
 export type UserStatus = 'active' | 'invited' | 'inactive';
 
 export interface OrganizationSettings {
@@ -38,6 +41,10 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   inboxStatus: InboxConnectionStatus;
+  /** Provider of the connected sending inbox (absent = Gmail, for accounts created before Zoho support). */
+  mailProvider?: MailProvider;
+  /** Address sequence emails are sent from, if it differs from the sign-in email. */
+  sendingEmail?: string;
   lastConnectedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -233,15 +240,27 @@ export interface ImportJob {
   updatedAt: string;
 }
 
-export interface GoogleToken {
+/** tokens/{uid} — server-only (Firestore rules deny client access). */
+export interface MailboxToken {
   userId: string;
   orgId: string;
+  /** Absent on records created before Zoho support — treat as 'gmail'. */
+  provider?: MailProvider;
   encryptedRefreshToken: string;
   encryptedAccessToken?: string;
   expiresAt?: number;
   scope: string;
   updatedAt: string;
+  // Zoho only
+  accountsServer?: string;
+  apiBase?: string;
+  zohoAccountId?: string;
+  fromAddress?: string;
+  fromName?: string;
 }
+
+/** @deprecated use MailboxToken */
+export type GoogleToken = MailboxToken;
 
 export interface OrgStatsSummary {
   emailsSent: number;

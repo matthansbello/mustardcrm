@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server';
  * Soft gate: prefers Firebase session cookie; falls back to client hint cookie
  * set after successful Firebase Auth (AuthGuard is the hard gate).
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const session = request.cookies.get('__session')?.value;
   const hint = request.cookies.get('__mustard_auth')?.value;
 

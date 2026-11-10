@@ -20,7 +20,7 @@ function Field({ icon: Icon, label, children }: { icon: typeof Mail; label: stri
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-fg-subtle" strokeWidth={1.75} />
       <div className="min-w-0 flex-1">
         <p className="text-xs text-fg-subtle">{label}</p>
-        <div className="mt-0.5 break-words text-sm text-fg">{children}</div>
+        <div className="mt-0.5 wrap-break-word text-sm text-fg">{children}</div>
       </div>
     </div>
   );
@@ -107,7 +107,7 @@ export function ContactDetailPanel({ contact, activity, onClose }: ContactDetail
             {custom.map(([key, value]) => (
               <div key={key} className="flex gap-3 py-2 text-sm">
                 <dt className="w-1/3 shrink-0 capitalize text-fg-subtle">{key.replace(/_/g, ' ')}</dt>
-                <dd className="min-w-0 flex-1 break-words text-fg">{String(value)}</dd>
+                <dd className="min-w-0 flex-1 wrap-break-word text-fg">{String(value)}</dd>
               </div>
             ))}
           </dl>

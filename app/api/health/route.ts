@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb, adminCredentialInfo, describeAdminCredentialError } from '@/lib/firebase/admin';
-import { getAppUrl, getGoogleRedirectUri } from '@/lib/appUrl';
+import { getAppUrl, getGoogleRedirectUri, getZohoRedirectUri } from '@/lib/appUrl';
+import { defaultAccountsServer } from '@/lib/email/providers/zoho';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,9 @@ export async function GET(request: Request) {
       'GOOGLE_CLIENT_ID',
       'GOOGLE_CLIENT_SECRET',
       'GOOGLE_REDIRECT_URI',
+      'ZOHO_CLIENT_ID',
+      'ZOHO_CLIENT_SECRET',
+      'ZOHO_REDIRECT_URI',
       'NEXT_PUBLIC_APP_URL',
       'TOKEN_ENCRYPTION_KEY',
       'MUSTARD_ADMIN_EMAILS',
@@ -45,6 +49,11 @@ export async function GET(request: Request) {
     ok: firestore === 'ok',
     firebaseAdmin: { credentialsFrom: adminCredentialInfo.source, missing: adminCredentialInfo.missing, firestore },
     gmailOAuth: { appUrl: getAppUrl(request), redirectUri: getGoogleRedirectUri(request) },
+    zohoOAuth: {
+      configured: present('ZOHO_CLIENT_ID') && present('ZOHO_CLIENT_SECRET'),
+      redirectUri: getZohoRedirectUri(request),
+      accountsServer: defaultAccountsServer(),
+    },
     env,
   });
 }

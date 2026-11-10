@@ -9,7 +9,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import admin from 'firebase-admin';
+import { cert, initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const envFile = path.resolve(process.cwd(), '.env.local');
 if (fs.existsSync(envFile)) {
@@ -54,7 +55,7 @@ if (!account.privateKey.includes('BEGIN PRIVATE KEY')) {
   fail('The private key is malformed (missing "BEGIN PRIVATE KEY"). Re-copy it from the downloaded JSON file.');
 }
 
-const credential = admin.credential.cert(account);
+const credential = cert(account);
 try {
   await credential.getAccessToken();
   console.log('✓ Key accepted by Google');
@@ -69,9 +70,9 @@ try {
   fail(`Google rejected the key: ${msg}`);
 }
 
-admin.initializeApp({ credential, projectId });
+initializeApp({ credential, projectId });
 try {
-  await admin.firestore().collection('organizations').limit(1).get();
+  await getFirestore().collection('organizations').limit(1).get();
   console.log('✓ Firestore reachable — sign-up will work with these credentials');
 } catch (e) {
   fail(`Key works, but Firestore access failed: ${e?.message || e}. Make sure Firestore is enabled in "${projectId}".`);
