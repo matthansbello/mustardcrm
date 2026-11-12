@@ -2,9 +2,10 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CircleAlert, Plus, Rocket, Trash2, Clock } from 'lucide-react';
-import { SequenceStep, Contact, ContactLifecycleStage } from '@/types';
+import { SequenceStep, Contact, ContactLifecycleStage, ContactList } from '@/types';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { getContacts } from '@/lib/services/contacts';
+import { subscribeLists } from '@/lib/services/lists';
 import { createAndLaunchSequence } from '@/lib/services/sequences';
 
 interface SequenceBuilderProps {
@@ -44,7 +45,8 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [audience, setAudience] = useState<{ mode: 'all' | 'tag' | 'stage'; value: string }>({ mode: 'all', value: '' });
+  const [audience, setAudience] = useState<{ mode: 'all' | 'list' | 'tag' | 'stage'; value: string }>({ mode: 'all', value: '' });
+  const [lists, setLists] = useState<ContactList[]>([]);
   const [skipIncomplete, setSkipIncomplete] = useState(false);
   const [dailyCap, setDailyCap] = useState(organization?.settings?.defaultDailyCapPerMailbox || 40);
   const [sendWindow, setSendWindow] = useState('9-17');
@@ -75,6 +77,11 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
 
   useEffect(() => {
     if (!organization?.id) return;
+    return subscribeLists(organization.id, setLists);
+  }, [organization?.id]);
+
+  useEffect(() => {
+    if (!organization?.id) return;
     getContacts(organization.id).then((data) => {
       setContacts(data);
       setContactsLoaded(true);
@@ -87,9 +94,13 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
   );
 
   const audienceContacts = useMemo(() => {
-    if (audience.mode === 'tag' && audience.value) return contacts.filter((c) => (c.tags || []).includes(audience.value));
+    // Never email people who unsubscribed or whose address bounced, whatever list or tag they're in.
+    const reachable = contacts.filter((c) => c.lifecycleStage !== 'unsubscribed' && c.lifecycleStage !== 'bounced');
+    if (audience.mode === 'list' && audience.value) return reachable.filter((c) => (c.listIds || []).includes(audience.value));
+    if (audience.mode === 'tag' && audience.value) return reachable.filter((c) => (c.tags || []).includes(audience.value));
     if (audience.mode === 'stage' && audience.value) return contacts.filter((c) => c.lifecycleStage === audience.value);
-    return contacts.filter((c) => c.lifecycleStage !== 'unsubscribed' && c.lifecycleStage !== 'bounced');
+    if (audience.mode !== 'all') return [];
+    return reachable;
   }, [contacts, audience]);
 
   // Every token used in any step must be filled for every recipient.
@@ -405,6 +416,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
                 {(
                   [
                     ['all', 'All contacts'],
+                    ['list', 'By list'],
                     ['tag', 'By tag'],
                     ['stage', 'By stage'],
                   ] as const
@@ -419,6 +431,26 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
                 ))}
               </div>
 
+              {audience.mode === 'list' &&
+                (lists.length ? (
+                  <select
+                    value={audience.value}
+                    onChange={(e) => setAudience({ mode: 'list', value: e.target.value })}
+                    className="input"
+                    aria-label="List"
+                  >
+                    <option value="">Choose a list…</option>
+                    {lists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm text-fg-muted">
+                    No lists yet. On the Contacts page, select people and choose <span className="text-fg">Add to list</span>.
+                  </p>
+                ))}
               {audience.mode === 'tag' && (
                 <select
                   value={audience.value}
@@ -453,7 +485,7 @@ export const SequenceBuilder: React.FC<SequenceBuilderProps> = ({ onLaunch, onCa
               <p className="text-sm text-fg-muted">
                 <span className="font-semibold text-fg">{recipients.length.toLocaleString()}</span> contacts will be
                 enrolled
-                {audience.mode === 'all' && ' (unsubscribed and bounced contacts are excluded)'}.
+                {audience.mode !== 'stage' && ' (unsubscribed and bounced contacts are excluded)'}.
               </p>
               {incomplete.length > 0 && (
                 <label className="flex items-center gap-2 text-sm text-fg">

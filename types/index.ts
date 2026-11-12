@@ -83,9 +83,21 @@ export interface Contact {
   companyName?: string;
   linkedIn?: string;
   tags: string[];
+  /** Ids of the contact lists (see ContactList) this contact belongs to. */
+  listIds?: string[];
   ownerId: string;
   lifecycleStage: ContactLifecycleStage;
   customFields: Record<string, string | number | boolean | null>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A named, hand-picked group of contacts (e.g. "Q4 webinar"), shared by the workspace. */
+export interface ContactList {
+  id: string;
+  orgId: string;
+  name: string;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }

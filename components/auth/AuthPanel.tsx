@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, KeyRound, Mail } from 'lucide-react';
 import { LogoMark } from '@/components/brand/Logo';
 import {
+  authErrorCode,
   completeMagicLink,
   completeRedirectSignIn,
   friendlyAuthError,
@@ -135,7 +136,13 @@ export function AuthPanel({ mode, next }: AuthPanelProps) {
       return;
     }
     run(async () => {
-      await resetPassword(email);
+      try {
+        await resetPassword(email);
+      } catch (err) {
+        // Same answer whether or not the account exists, so the form can't be used to
+        // discover who has an account (and "Incorrect password" would make no sense here).
+        if (authErrorCode(err) !== 'auth/user-not-found') throw err;
+      }
       setNotice(`If an account exists for ${email.trim()}, a password reset email is on its way.`);
     }, false);
   };

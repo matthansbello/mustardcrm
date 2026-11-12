@@ -87,6 +87,18 @@ service cloud.firestore {
         allow read, write: if isMember(orgId);
       }
 
+      // Contact lists — shared like the rest of the CRM. Membership lives on each
+      // contact (`listIds`), so deleting a list never deletes contacts.
+      match /lists/{listId} {
+        allow read, delete: if isMember(orgId);
+        allow create, update: if isMember(orgId)
+          && request.resource.data.id == listId
+          && request.resource.data.orgId == orgId
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 60;
+      }
+
       match /deals/{dealId} {
         allow read, write: if isMember(orgId);
       }

@@ -22,8 +22,9 @@ Mustard combines contact/pipeline CRM with multi-step cold email sequences sent 
 - One shared workspace: every user sees every contact, company, deal, and sequence
 - Send from Gmail / Google Workspace **or Zoho Mail** (any user can connect either, whatever they signed in with)
 - Contacts, companies, deals (Kanban with GSAP Flip drag)
-- CSV/XLSX bulk import with mapping, validation, and live progress
-- Sequence builder with personalization tokens and launch guards
+- Contact lists and tags: select contacts to add them to lists or tag them in bulk, filter by list or tag, manage lists (`organizations/{orgId}/lists`, membership in each contact's `listIds`)
+- CSV/XLSX bulk import with mapping, validation, live progress, and an optional target list
+- Sequence builder with personalization tokens, launch guards, and audiences by list, tag or stage
 - Scheduled send engine (`onSequenceTick`) with idempotent sends
 - Open/click tracking pixels + reply detection (Gmail Pub/Sub push; Zoho Mail mailbox search every 30 min and before each follow-up)
 - Team invites, roles, deactivate + reassignment

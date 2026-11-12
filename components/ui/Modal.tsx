@@ -22,6 +22,9 @@ interface ModalProps {
 
 const SIZES = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl' };
 
+/** Ids of the modals currently open, oldest first. */
+const openStack: string[] = [];
+
 export function Modal({
   isOpen,
   onClose,
@@ -45,14 +48,25 @@ export function Modal({
     };
   }, [isOpen]);
 
+  // Track open modals so Escape closes only the top one (e.g. a picker opened from a panel).
+  const stackId = React.useId();
+  useEffect(() => {
+    if (!isOpen) return;
+    openStack.push(stackId);
+    return () => {
+      const i = openStack.lastIndexOf(stackId);
+      if (i !== -1) openStack.splice(i, 1);
+    };
+  }, [isOpen, stackId]);
+
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !locked) onClose();
+      if (e.key === 'Escape' && !locked && openStack[openStack.length - 1] === stackId) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, locked, onClose]);
+  }, [isOpen, locked, onClose, stackId]);
 
   if (!isOpen || typeof document === 'undefined') return null;
 

@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase/admin';
 
 const SESSION_COOKIE_NAME = '__session';
 const SESSION_EXPIRES_MS = 60 * 60 * 24 * 5 * 1000; // 5 days
@@ -11,6 +10,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing idToken' }, { status: 400 });
     }
 
+    // Loaded lazily so signing out (DELETE) never depends on the Admin SDK starting up.
+    const { adminAuth } = await import('@/lib/firebase/admin');
     const expiresIn = SESSION_EXPIRES_MS;
     const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
 

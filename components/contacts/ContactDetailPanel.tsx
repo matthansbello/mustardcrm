@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Mail, Phone, Building2, Briefcase, Calendar, Check, Copy } from 'lucide-react';
-import { Contact, ActivityItem } from '@/types';
+import { Mail, Phone, Building2, Briefcase, Calendar, Check, Copy, ListPlus, Tag, X } from 'lucide-react';
+import { Contact, ActivityItem, ContactList } from '@/types';
+import { useAuthStore } from '@/lib/store/useAuthStore';
+import { removeContactsFromList, removeTagsFromContacts } from '@/lib/services/lists';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Avatar';
 import { StageBadge } from '@/components/ui/StageBadge';
@@ -11,7 +13,10 @@ import { ActivityTimeline } from '@/components/crm/ActivityTimeline';
 interface ContactDetailPanelProps {
   contact: Contact | null;
   activity: ActivityItem[];
+  lists: ContactList[];
   onClose: () => void;
+  onAddToList: (contact: Contact) => void;
+  onEditTags: (contact: Contact) => void;
 }
 
 function Field({ icon: Icon, label, children }: { icon: typeof Mail; label: string; children: React.ReactNode }) {
@@ -26,9 +31,26 @@ function Field({ icon: Icon, label, children }: { icon: typeof Mail; label: stri
   );
 }
 
-export function ContactDetailPanel({ contact, activity, onClose }: ContactDetailPanelProps) {
+export function ContactDetailPanel({ contact, activity, lists, onClose, onAddToList, onEditTags }: ContactDetailPanelProps) {
+  const { organization } = useAuthStore();
   const [copied, setCopied] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   if (!contact) return null;
+
+  const memberOf = lists.filter((l) => (contact.listIds || []).includes(l.id));
+
+  const remove = async (key: string, action: () => Promise<void>) => {
+    setRemoving(key);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update this contact.');
+    } finally {
+      setRemoving(null);
+    }
+  };
 
   const name = `${contact.firstName} ${contact.lastName}`.trim() || contact.email;
   const custom = Object.entries(contact.customFields || {}).filter(([, v]) => v !== null && v !== '');
@@ -53,11 +75,6 @@ export function ContactDetailPanel({ contact, activity, onClose }: ContactDetail
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <StageBadge stage={contact.lifecycleStage} />
-        {(contact.tags || []).map((t) => (
-          <span key={t} className="badge badge-neutral">
-            {t}
-          </span>
-        ))}
       </div>
 
       <div className="mt-4 flex gap-2">
@@ -70,6 +87,58 @@ export function ContactDetailPanel({ contact, activity, onClose }: ContactDetail
           {copied ? 'Copied' : 'Copy email'}
         </button>
       </div>
+
+      <section className="mt-6">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle font-sans">Lists &amp; tags</h3>
+        {error && <p className="mt-2 text-sm text-rose-300">{error}</p>}
+        <div className="mt-2 space-y-3">
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Lists">
+            {memberOf.map((l) => (
+              <span key={l.id} className="badge badge-violet h-6 gap-1 pr-1 text-xs">
+                {l.name}
+                <button
+                  type="button"
+                  disabled={removing === `list:${l.id}`}
+                  onClick={() =>
+                    organization?.id &&
+                    remove(`list:${l.id}`, () => removeContactsFromList(organization.id, l.id, [contact.id]))
+                  }
+                  aria-label={`Remove from ${l.name}`}
+                  className="rounded p-0.5 hover:bg-violet-500/20 disabled:opacity-50"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <button type="button" onClick={() => onAddToList(contact)} className="btn btn-ghost btn-sm h-6 px-1.5 text-xs">
+              <ListPlus className="h-3.5 w-3.5" />
+              {memberOf.length ? 'Add to list' : 'Add to a list'}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Tags">
+            {(contact.tags || []).map((t) => (
+              <span key={t} className="badge badge-neutral h-6 gap-1 pr-1 text-xs">
+                {t}
+                <button
+                  type="button"
+                  disabled={removing === `tag:${t}`}
+                  onClick={() =>
+                    organization?.id && remove(`tag:${t}`, () => removeTagsFromContacts(organization.id, [contact.id], [t]))
+                  }
+                  aria-label={`Remove tag ${t}`}
+                  className="rounded p-0.5 hover:bg-surface-3 disabled:opacity-50"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <button type="button" onClick={() => onEditTags(contact)} className="btn btn-ghost btn-sm h-6 px-1.5 text-xs">
+              <Tag className="h-3.5 w-3.5" />
+              {(contact.tags || []).length ? 'Edit tags' : 'Add tags'}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section className="mt-6">
         <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle font-sans">Details</h3>

@@ -13,11 +13,35 @@ import { getStorage } from 'firebase-admin/storage';
 
 const clean = (v?: string) => (v || '').trim().replace(/^["']|["']$/g, '');
 
+/**
+ * Rebuild a PEM private key from however it survived being pasted into a hosting
+ * dashboard: literal or double-escaped "\\n", spaces instead of line breaks, Windows
+ * line endings, surrounding quotes, missing trailing newline. The Admin SDK's parser
+ * (OpenSSL) rejects all of those, which would otherwise take down every server route.
+ */
+export function normalizePrivateKey(raw: string): string {
+  // One or more backslashes before "n" is an escaped line break, however many times it was escaped.
+  const key = clean(raw).replace(/\\+n/g, '\n').replace(/\r/g, '');
+  const match = key.match(/-----BEGIN ([A-Z ]+)-----([\s\S]*?)-----END \1-----/);
+  if (!match) return key;
+  const [, label, body] = match;
+  const base64 = body.replace(/[^A-Za-z0-9+/=]/g, '');
+  const lines = base64.match(/.{1,64}/g) || [];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
+}
+
 const projectId =
   clean(process.env.FIREBASE_PROJECT_ID) || clean(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) || 'demo-project';
 
-/** Which credential source was used, and which env vars were missing — names only, never values. */
-export const adminCredentialInfo: { source: string; missing: string[] } = { source: 'none', missing: [] };
+/**
+ * Which credential source was used, which env vars were missing, and why the key was
+ * rejected at startup (if it was) — names and library messages only, never values.
+ */
+export const adminCredentialInfo: { source: string; missing: string[]; initError: string | null } = {
+  source: 'none',
+  missing: [],
+  initError: null,
+};
 
 function loadServiceAccount(): ServiceAccount | null {
   const json = clean(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -28,7 +52,7 @@ function loadServiceAccount(): ServiceAccount | null {
       return {
         projectId: parsed.project_id || projectId,
         clientEmail: parsed.client_email,
-        privateKey: String(parsed.private_key || '').replace(/\\n/g, '\n'),
+        privateKey: normalizePrivateKey(String(parsed.private_key || '')),
       };
     } catch {
       console.error('[firebase-admin] FIREBASE_SERVICE_ACCOUNT is not valid JSON — paste the whole key file contents.');
@@ -37,7 +61,7 @@ function loadServiceAccount(): ServiceAccount | null {
   }
 
   const clientEmail = clean(process.env.FIREBASE_CLIENT_EMAIL);
-  const privateKey = clean(process.env.FIREBASE_PRIVATE_KEY).replace(/\\n/g, '\n');
+  const privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY || '');
   if (clientEmail && privateKey) {
     adminCredentialInfo.source = 'FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY';
     return { projectId, clientEmail, privateKey };
@@ -62,8 +86,22 @@ if (!getApps().length) {
           'Generate a key for the right project (Firebase console → Project settings → Service accounts).'
       );
     }
+    // cert() throws synchronously on a malformed key (bad PEM, literal "\n", missing
+    // client_email). Throwing here would crash this module on import, turning every API
+    // route into an empty 500 — so record the reason and start without credentials;
+    // requests then fail with a clear message from describeAdminCredentialError().
+    let credential: ReturnType<typeof cert> | undefined;
+    try {
+      credential = cert(account);
+    } catch (err) {
+      adminCredentialInfo.initError = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[firebase-admin] The service-account key from ${adminCredentialInfo.source} was rejected: ${adminCredentialInfo.initError} ` +
+          'Re-copy the key from the Firebase console (Project settings → Service accounts → Generate new private key).'
+      );
+    }
     initializeApp({
-      credential: cert(account),
+      ...(credential ? { credential } : {}),
       projectId,
       storageBucket: clean(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) || undefined,
     });
@@ -91,6 +129,9 @@ export const adminStorage = getStorage();
 export function describeAdminCredentialError(err: unknown): string | null {
   const message = err instanceof Error ? err.message : String(err);
   const code = (err as { code?: unknown })?.code;
+  if (adminCredentialInfo.initError) {
+    return `The server’s Firebase service-account key is malformed (${adminCredentialInfo.initError}), so sign-in can’t finish. An administrator needs to re-copy the key from the Firebase console into ${adminCredentialInfo.source} in the hosting environment variables and redeploy.`;
+  }
   if (/Could not load the default credentials/i.test(message)) {
     const missing = adminCredentialInfo.missing.length ? ` Missing on the server: ${adminCredentialInfo.missing.join(', ')}.` : '';
     return `The server has no Firebase credentials, so sign-in can’t finish.${missing} An administrator needs to set them in the hosting environment variables (available to Functions) and redeploy.`;

@@ -10,14 +10,23 @@ import {
   MAX_IMPORT_ROWS,
 } from '@/lib/importer/parser';
 import { importContacts, ImportSummary } from '@/lib/services/imports';
-import { FileSpreadsheet, CheckCircle2, ArrowRight, Loader2, CircleAlert, Upload } from 'lucide-react';
+import { cleanListName, createList, findListByName, MAX_LIST_NAME } from '@/lib/services/lists';
+import { FileSpreadsheet, CheckCircle2, ArrowRight, Loader2, CircleAlert, Upload, ListPlus } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import type { ContactList } from '@/types';
 
 interface BulkImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (count: number) => void;
+  /** Existing lists, so the import can go straight into one. */
+  lists?: ContactList[];
 }
+
+const NEW_LIST = '__new__';
+
+/** "Q4 leads (final).csv" → "Q4 leads (final)" */
+const nameFromFile = (fileName: string) => cleanListName(fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '));
 
 const FIELD_OPTIONS = [
   { label: 'Email', value: 'email' },
@@ -32,7 +41,7 @@ const FIELD_OPTIONS = [
 
 const STEP_LABELS = ['Upload', 'Map columns', 'Import', 'Done'];
 
-export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose, onSuccess, lists = [] }) => {
   const { user, organization } = useAuthStore();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -43,6 +52,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
   const [importProgress, setImportProgress] = useState(0);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** '' = don't add to a list, NEW_LIST = create one named `newListName`, otherwise a list id. */
+  const [listChoice, setListChoice] = useState('');
+  const [newListName, setNewListName] = useState('');
+  const [importedListName, setImportedListName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = () => {
@@ -53,6 +66,9 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     setImportProgress(0);
     setSummary(null);
     setError(null);
+    setListChoice('');
+    setNewListName('');
+    setImportedListName(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -70,6 +86,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
       const result = await parseImportFile(droppedFile);
       setParseResult(result);
       setColumnMapping(result.autoMapping);
+      setNewListName(nameFromFile(droppedFile.name));
       setStep(2);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not read this file.');
@@ -107,14 +124,23 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     setStep(3);
 
     try {
+      // Create or find the target list first; contacts are written with its id.
+      let list: ContactList | undefined;
+      if (listChoice === NEW_LIST) {
+        list = findListByName(lists, newListName) || (await createList(organization.id, newListName, user.id));
+      } else if (listChoice) {
+        list = lists.find((l) => l.id === listChoice);
+      }
       const result = await importContacts({
         orgId: organization.id,
         ownerId: user.id,
         fileName: file.name,
         rows: parseResult.rows,
         columnMapping,
+        listId: list?.id,
         onProgress: (processed, total) => setImportProgress(Math.round((processed / total) * 100)),
       });
+      setImportedListName(list?.name || null);
       setSummary(result);
       setStep(4);
       onSuccess(result.imported);
@@ -139,7 +165,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
         <button onClick={reset} className="btn btn-secondary">
           Back
         </button>
-        <button onClick={handleStartImport} disabled={parseResult.validCount === 0 || !emailMapped} className="btn btn-primary">
+        <button
+          onClick={handleStartImport}
+          disabled={parseResult.validCount === 0 || !emailMapped || (listChoice === NEW_LIST && !cleanListName(newListName))}
+          className="btn btn-primary"
+        >
           Import {parseResult.validCount.toLocaleString()} contacts
           <ArrowRight className="h-4 w-4" />
         </button>
@@ -263,6 +293,44 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
             </div>
           </div>
 
+          <div className="rounded-lg border border-line p-3">
+            <label htmlFor="import-list" className="label flex items-center gap-1.5">
+              <ListPlus className="h-4 w-4 text-fg-subtle" />
+              Add these contacts to a list
+              <span className="font-normal text-fg-subtle">(optional)</span>
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <select
+                id="import-list"
+                value={listChoice}
+                onChange={(e) => setListChoice(e.target.value)}
+                className="input sm:h-8 sm:w-56"
+              >
+                <option value="">Don’t add to a list</option>
+                <option value={NEW_LIST}>+ New list…</option>
+                {lists.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+              {listChoice === NEW_LIST && (
+                <input
+                  autoFocus
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  maxLength={MAX_LIST_NAME}
+                  placeholder="List name"
+                  aria-label="New list name"
+                  className="input sm:h-8"
+                />
+              )}
+            </div>
+            {listChoice && (
+              <p className="hint">People in this file who are already in the workspace are added to the list too.</p>
+            )}
+          </div>
+
           {!emailMapped && (
             <div className="alert alert-warning">
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -308,6 +376,12 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
           <p className="mt-4 text-lg font-semibold text-fg">
             {(summary?.imported ?? 0).toLocaleString()} contacts added
           </p>
+          {importedListName && summary && (
+            <p className="mt-1 text-sm text-fg-muted">
+              {summary.addedToList.toLocaleString()} contact{summary.addedToList === 1 ? '' : 's'} now in{' '}
+              <span className="text-fg">“{importedListName}”</span>
+            </p>
+          )}
           {summary && (summary.existingDuplicates > 0 || summary.fileDuplicates > 0 || summary.invalid > 0) && (
             <ul className="mx-auto mt-4 max-w-xs space-y-1 text-left text-sm text-fg-muted">
               {summary.existingDuplicates > 0 && (

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { LogoMark } from '@/components/brand/Logo';
 import { useAuthStore } from '@/lib/store/useAuthStore';
@@ -13,14 +13,16 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, requireAuth = true }: AuthGuardProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { isLoading, isAuthenticated } = useAuthStore();
 
   React.useEffect(() => {
     if (!requireAuth || isLoading) return;
     if (!isAuthenticated) {
-      router.replace('/login');
+      // Come back to this page after signing in.
+      router.replace(pathname && pathname !== '/' ? `/login?next=${encodeURIComponent(pathname)}` : '/login');
     }
-  }, [requireAuth, isLoading, isAuthenticated, router]);
+  }, [requireAuth, isLoading, isAuthenticated, router, pathname]);
 
   if (!requireAuth) return <>{children}</>;
 

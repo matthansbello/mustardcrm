@@ -231,8 +231,14 @@ export async function disconnectMailbox(): Promise<void> {
   }
 }
 
+/**
+ * Sign out and clear both session cookies before resolving, so a navigation right after
+ * (e.g. to /login) can't cancel the request and leave a stale `__session` cookie behind.
+ */
 export async function signOutUser(): Promise<void> {
   await firebaseSignOut(auth);
+  document.cookie = '__mustard_auth=; path=/; max-age=0; SameSite=Lax';
+  await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => undefined);
 }
 
 /**

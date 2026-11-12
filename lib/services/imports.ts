@@ -2,7 +2,8 @@ import { doc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 import { ImportJob } from '@/types';
 import type { ParsedRow } from '@/lib/importer/parser';
-import { batchCreateContacts, getExistingEmailsSet } from './contacts';
+import { batchCreateContacts, getExistingEmailIndex } from './contacts';
+import { addContactsToList } from './lists';
 
 export interface ImportSummary {
   jobId: string;
@@ -12,6 +13,8 @@ export interface ImportSummary {
   /** Repeated inside the uploaded file. */
   fileDuplicates: number;
   invalid: number;
+  /** Contacts from the file now in the chosen list (new ones plus ones already in the workspace). */
+  addedToList: number;
 }
 
 /**
@@ -26,13 +29,15 @@ export async function importContacts(params: {
   fileName: string;
   rows: ParsedRow[];
   columnMapping: Record<string, string>;
+  /** Put every valid contact from the file into this list — including ones already in the workspace. */
+  listId?: string;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ImportSummary> {
-  const { orgId, ownerId, fileName, rows, columnMapping, onProgress } = params;
+  const { orgId, ownerId, fileName, rows, columnMapping, listId, onProgress } = params;
   const jobId = `import_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const startedAt = new Date().toISOString();
 
-  const existing = await getExistingEmailsSet(orgId);
+  const existing = await getExistingEmailIndex(orgId);
   const valid = rows.filter((r) => r.isValid);
   const toCreate = valid.filter((r) => !existing.has(r.email));
   const existingDuplicates = valid.length - toCreate.length;
@@ -53,11 +58,19 @@ export async function importContacts(params: {
           ownerId,
           lifecycleStage: 'lead' as const,
           customFields: r.customFields,
+          ...(listId ? { listIds: [listId] } : {}),
         })),
         onProgress
       )
     : 0;
   if (!toCreate.length) onProgress?.(1, 1);
+
+  // People in the file who were already in the workspace join the list too.
+  const existingIds = listId
+    ? [...new Set(valid.map((r) => existing.get(r.email)).filter((id): id is string => Boolean(id)))]
+    : [];
+  if (listId && existingIds.length) await addContactsToList(orgId, listId, existingIds);
+  const addedToList = listId ? imported + existingIds.length : 0;
 
   const job: ImportJob = {
     id: jobId,
@@ -82,7 +95,7 @@ export async function importContacts(params: {
     console.warn('Could not record import job:', err)
   );
 
-  return { jobId, imported, existingDuplicates, fileDuplicates, invalid };
+  return { jobId, imported, existingDuplicates, fileDuplicates, invalid, addedToList };
 }
 
 export function subscribeImportJob(

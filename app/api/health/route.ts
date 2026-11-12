@@ -47,7 +47,12 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: firestore === 'ok',
-    firebaseAdmin: { credentialsFrom: adminCredentialInfo.source, missing: adminCredentialInfo.missing, firestore },
+    firebaseAdmin: {
+      credentialsFrom: adminCredentialInfo.source,
+      missing: adminCredentialInfo.missing,
+      keyRejected: adminCredentialInfo.initError,
+      firestore,
+    },
     gmailOAuth: { appUrl: getAppUrl(request), redirectUri: getGoogleRedirectUri(request) },
     zohoOAuth: {
       configured: present('ZOHO_CLIENT_ID') && present('ZOHO_CLIENT_SECRET'),

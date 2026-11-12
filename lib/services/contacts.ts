@@ -183,17 +183,21 @@ export async function batchCreateContacts(
 }
 
 /**
- * Every email already in the workspace. Throws on failure — callers use this to
- * avoid duplicates, so silently returning an empty set would be unsafe.
+ * Every email already in the workspace, mapped to its contact id. Throws on failure —
+ * callers use this to avoid duplicates, so silently returning nothing would be unsafe.
  */
-export async function getExistingEmailsSet(orgId: string): Promise<Set<string>> {
+export async function getExistingEmailIndex(orgId: string): Promise<Map<string, string>> {
   const snapshot = await getDocs(collection(db, `organizations/${orgId}/contacts`));
-  const emails = new Set<string>();
+  const index = new Map<string, string>();
   snapshot.forEach((d) => {
     const email = String(d.get('email') || '').toLowerCase().trim();
-    if (email) emails.add(email);
+    if (email && !index.has(email)) index.set(email, d.id);
   });
-  return emails;
+  return index;
+}
+
+export async function getExistingEmailsSet(orgId: string): Promise<Set<string>> {
+  return new Set((await getExistingEmailIndex(orgId)).keys());
 }
 
 export async function getContactById(
