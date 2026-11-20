@@ -104,6 +104,14 @@ node scripts/migrate-to-shared-workspace.mjs          # dry run
 node scripts/migrate-to-shared-workspace.mjs --apply  # copy everything into MUSTARD_WORKSPACE_ID
 ```
 
+### Why `package.json` pins `jose` 5 for `jwks-rsa`
+
+firebase-admin 14 verifies sign-in tokens with `jwks-rsa`, which depends on `jose` 6 — an ES-module-only
+package it loads with `require()`. Netlify's function runtime doesn't allow `require()` of ES modules, so
+the Admin SDK crashed on load and every sign-in failed ("Could not load your workspace profile").
+The `overrides` entry gives `jwks-rsa` `jose` 5, which ships CommonJS and has the same API it uses.
+Remove it once `jwks-rsa`/firebase-admin stop depending on an ESM-only `jose`.
+
 ## Scripts
 
 | Command | Description |
