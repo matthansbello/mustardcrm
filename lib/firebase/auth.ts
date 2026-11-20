@@ -258,7 +258,11 @@ export async function syncUserProfile(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || 'Could not load your workspace profile.');
+    throw new Error(
+      data.error ||
+        `Could not load your workspace profile — the server returned an error (HTTP ${res.status}). ` +
+          'Try again in a minute; if it keeps happening, ask your workspace admin to check the server setup.'
+    );
   }
   // Pick up the orgId/role custom claims the server may have just set.
   await fbUser.getIdToken(true).catch(() => undefined);

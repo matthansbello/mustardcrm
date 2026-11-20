@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminDb, adminCredentialInfo, describeAdminCredentialError } from '@/lib/firebase/admin';
+import { describeStartupError, nodeVersionInfo, safeErrorSummary } from '@/lib/serverRuntime';
 import { getAppUrl, getGoogleRedirectUri, getZohoRedirectUri } from '@/lib/appUrl';
 import { defaultAccountsServer } from '@/lib/email/providers/zoho';
 
@@ -38,21 +38,33 @@ export async function GET(request: Request) {
     ].map((name) => [name, present(name) ? 'set' : 'missing'])
   );
 
+  const runtime = nodeVersionInfo();
+
+  // Loaded here (not at the top) so this report still works when the Admin SDK can't start.
+  let firebaseAdmin: Record<string, unknown>;
   let firestore = 'ok';
   try {
-    await adminDb.collection('organizations').limit(1).get();
-  } catch (err) {
-    firestore = describeAdminCredentialError(err) || (err instanceof Error ? err.message : 'failed');
-  }
-
-  return NextResponse.json({
-    ok: firestore === 'ok',
-    firebaseAdmin: {
+    const { adminDb, adminCredentialInfo, describeAdminCredentialError } = await import('@/lib/firebase/admin');
+    try {
+      await adminDb.collection('organizations').limit(1).get();
+    } catch (err) {
+      firestore = describeAdminCredentialError(err) || safeErrorSummary(err);
+    }
+    firebaseAdmin = {
       credentialsFrom: adminCredentialInfo.source,
       missing: adminCredentialInfo.missing,
       keyRejected: adminCredentialInfo.initError,
       firestore,
-    },
+    };
+  } catch (err) {
+    firestore = 'not started';
+    firebaseAdmin = { loadError: safeErrorSummary(err), advice: describeStartupError(err), firestore };
+  }
+
+  return NextResponse.json({
+    ok: firestore === 'ok' && runtime.supported,
+    runtime,
+    firebaseAdmin,
     gmailOAuth: { appUrl: getAppUrl(request), redirectUri: getGoogleRedirectUri(request) },
     zohoOAuth: {
       configured: present('ZOHO_CLIENT_ID') && present('ZOHO_CLIENT_SECRET'),

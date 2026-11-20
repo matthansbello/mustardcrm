@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminAuth, adminDb, describeAdminCredentialError } from '@/lib/firebase/admin';
+import { describeStartupError, safeErrorSummary } from '@/lib/serverRuntime';
 import {
   SHARED_ORG_ID,
   SHARED_ORG_NAME,
@@ -24,6 +24,17 @@ const ADMIN_EMAILS = new Set(
  * Auth: Bearer <Firebase ID token>. Works for every Firebase sign-in provider.
  */
 export async function POST(request: Request) {
+  // Load the Admin SDK here rather than at the top of the file: if it can't start (old
+  // Node.js runtime, broken install), the user gets an explanation instead of an empty 500.
+  let admin: typeof import('@/lib/firebase/admin');
+  try {
+    admin = await import('@/lib/firebase/admin');
+  } catch (error) {
+    console.error('[auth/sync] Firebase Admin SDK failed to load:', safeErrorSummary(error));
+    return NextResponse.json({ error: describeStartupError(error), code: 'server_startup' }, { status: 503 });
+  }
+  const { adminAuth, adminDb, describeAdminCredentialError } = admin;
+
   try {
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
