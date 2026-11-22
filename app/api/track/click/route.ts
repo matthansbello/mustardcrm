@@ -48,6 +48,13 @@ export async function GET(request: Request) {
     }
   }
 
-  const destination = targetUrl || '/';
+  // Only forward to ordinary web links (never javascript:, data: or other schemes).
+  let destination = new URL('/', request.url).toString();
+  try {
+    const parsed = new URL(targetUrl || '');
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') destination = parsed.toString();
+  } catch {
+    // malformed target — fall back to the app
+  }
   return NextResponse.redirect(destination, 302);
 }

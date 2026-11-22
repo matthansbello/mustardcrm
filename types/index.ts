@@ -174,6 +174,13 @@ export interface Sequence {
   steps: SequenceStep[];
   settings: SequenceSettings;
   stats: SequenceStats;
+  /** Written by the sending service each run: whether emails are going out, and why not. */
+  deliveryStatus?: {
+    state: 'ok' | 'error';
+    message: string | null;
+    checkedAt?: string;
+    lastSentAt?: string;
+  };
   createdBy: string;
   createdAt: string;
   updatedAt: string;

@@ -92,6 +92,43 @@ function zohoDate(ms: number): string {
   return `${String(d.getUTCDate()).padStart(2, '0')}-${mon}-${d.getUTCFullYear()}`;
 }
 
+/** "Jane Doe <Jane@Acme.io>" → "jane@acme.io" */
+export function extractAddress(value: string): string {
+  const m = String(value || '').match(/[^\s<>"']+@[^\s<>"']+/);
+  return m ? m[0].toLowerCase() : '';
+}
+
+/**
+ * Every message received since `sinceMs`, newest first, as sender address + time — one
+ * mailbox scan per run instead of one search per contact (which would exhaust Zoho's API
+ * limits once thousands of contacts have been emailed).
+ */
+export async function listZohoMessagesSince(p: {
+  apiBase: string;
+  accessToken: string;
+  accountId: string;
+  sinceMs: number;
+  maxMessages?: number;
+}): Promise<{ messageId: string; fromAddress: string; receivedMs: number }[]> {
+  const max = p.maxMessages ?? 1000;
+  const pageSize = 200;
+  const searchKey = `fromDate:${zohoDate(p.sinceMs - 86400000)}`;
+  const out: { messageId: string; fromAddress: string; receivedMs: number }[] = [];
+  for (let start = 1; out.length < max; start += pageSize) {
+    const qs = new URLSearchParams({ searchKey, limit: String(pageSize), start: String(start) });
+    const page = await zohoApi<
+      { messageId?: string | number; fromAddress?: string; sender?: string; receivedtime?: string | number; receivedTime?: string | number }[]
+    >(p.apiBase, p.accessToken, `/api/accounts/${encodeURIComponent(p.accountId)}/messages/search?${qs}`);
+    for (const m of page || []) {
+      const receivedMs = Number(m.receivedtime ?? m.receivedTime ?? 0);
+      const fromAddress = extractAddress(String(m.fromAddress || m.sender || ''));
+      if (receivedMs > p.sinceMs && fromAddress) out.push({ messageId: String(m.messageId), fromAddress, receivedMs });
+    }
+    if (!page || page.length < pageSize) break;
+  }
+  return out;
+}
+
 /** First message from `fromEmail` received after `sinceMs`, or null. */
 export async function findZohoReplySince(p: {
   apiBase: string;

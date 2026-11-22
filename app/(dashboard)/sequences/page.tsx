@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Mails, Pause, Play, Plus } from 'lucide-react';
+import { Mails, Pause, Play, Plus, TriangleAlert } from 'lucide-react';
 import { useGsapReveal } from '@/lib/hooks/useGsapReveal';
 import { useAuthStore } from '@/lib/store/useAuthStore';
 import { Sequence, SequenceStatus } from '@/types';
@@ -19,6 +19,31 @@ const STATUS_BADGE: Record<SequenceStatus, string> = {
 };
 
 const pct = (num: number, den: number) => (den > 0 ? `${((num / den) * 100).toFixed(1)}%` : '—');
+
+function timeAgo(iso?: string): string {
+  const ms = Date.now() - Date.parse(iso || '');
+  if (!Number.isFinite(ms)) return '';
+  const min = Math.round(ms / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
+}
+
+/** One line under the sequence name: a delivery problem, or when the last email went out. */
+function DeliveryLine({ seq }: { seq: Sequence }) {
+  const d = seq.deliveryStatus;
+  if (seq.status === 'active' && d?.state === 'error' && d.message) {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-300">
+        <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" />
+        <span>Not sending: {d.message}</span>
+      </p>
+    );
+  }
+  if (d?.lastSentAt) return <p className="mt-0.5 text-xs text-fg-subtle">Last email sent {timeAgo(d.lastSentAt)}</p>;
+  return null;
+}
 
 function SequencesContent() {
   const containerRef = useGsapReveal<HTMLDivElement>();
@@ -105,6 +130,7 @@ function SequencesContent() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-fg">{seq.name}</p>
                       <p className="mt-0.5 text-xs text-fg-subtle">{(seq.steps || []).length} steps</p>
+                      <DeliveryLine seq={seq} />
                     </div>
                     <span className={`badge shrink-0 capitalize ${STATUS_BADGE[seq.status]}`}>{seq.status}</span>
                   </div>
@@ -155,7 +181,10 @@ function SequencesContent() {
                   const canToggle = seq.status === 'active' || seq.status === 'paused';
                   return (
                     <tr key={seq.id} className="hover:bg-surface-2">
-                      <td className="font-medium text-fg">{seq.name}</td>
+                      <td className="max-w-xs">
+                        <p className="font-medium text-fg">{seq.name}</p>
+                        <DeliveryLine seq={seq} />
+                      </td>
                       <td>
                         <span className={`badge capitalize ${STATUS_BADGE[seq.status]}`}>{seq.status}</span>
                       </td>

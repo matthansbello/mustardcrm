@@ -17,6 +17,15 @@ export async function POST(request: Request) {
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  // The Cloud Function `onSequenceTick` is the production sender (it enforces sending hours,
+  // daily limits and pacing). This route doesn't, so it only runs where explicitly enabled
+  // (e.g. local development without Cloud Functions) to avoid a second, unthrottled sender.
+  if (process.env.ENABLE_NETLIFY_SEND_CRON !== 'true') {
+    return NextResponse.json(
+      { error: 'Disabled: emails are sent by the onSequenceTick Cloud Function. Set ENABLE_NETLIFY_SEND_CRON=true to use this route.' },
+      { status: 409 }
+    );
+  }
 
   const nowIso = new Date().toISOString();
   let processed = 0;

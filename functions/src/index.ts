@@ -7,7 +7,7 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onMessagePublished } from 'firebase-functions/v2/pubsub';
 import { google } from 'googleapis';
 import * as crypto from 'crypto';
-import { findZohoReplySince, refreshZohoAccessToken, sendZohoMail, ZohoApiError } from './zoho';
+import { listZohoMessagesSince, refreshZohoAccessToken, sendZohoMail, ZohoApiError } from './zoho';
 
 if (!getApps().length) {
   initializeApp();
@@ -64,9 +64,22 @@ interface TrackingOpts {
   contactId: string;
 }
 
+/**
+ * Turn bare URLs typed into a plain-text step ("See https://acme.io/demo") into links, so they
+ * are clickable everywhere and get click tracking. URLs already inside an <a href> are left alone.
+ */
+function linkifyPlainText(text: string): string {
+  return text.replace(/(^|[\s(])(https?:\/\/[^\s<>"')]+[^\s<>"').,;:!?])/g, (_, lead, url) => `${lead}<a href="${url}">${url}</a>`);
+}
+
 /** Body HTML with open pixel and click-tracked links (used for Gmail and Zoho). */
 function buildTrackedHtml(opts: TrackingOpts): string {
-  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const configured = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
+  // Without it every tracked link would point at localhost — refuse rather than send broken emails.
+  if (!configured && process.env.K_SERVICE && !process.env.FUNCTIONS_EMULATOR) {
+    throw new Error('NEXT_PUBLIC_APP_URL (or APP_URL) must be set for the sending service');
+  }
+  const baseUrl = (configured || 'http://localhost:3000').replace(/\/+$/, '');
   const params = new URLSearchParams({
     eventId: opts.eventId,
     orgId: opts.orgId,
@@ -76,7 +89,7 @@ function buildTrackedHtml(opts: TrackingOpts): string {
   const pixel = `<img src="${baseUrl}/api/track/open?${params}" width="1" height="1" style="display:none" alt="" />`;
   // Plain-text bodies (maybe with an inline <a> link) keep their line breaks.
   const isLayoutHtml = /<(p|div|br|table|ul|ol|li|h[1-6]|html|body)\b/i.test(opts.bodyHtml);
-  let html = isLayoutHtml ? opts.bodyHtml : opts.bodyHtml.replace(/\r?\n/g, '<br/>');
+  let html = isLayoutHtml ? opts.bodyHtml : linkifyPlainText(opts.bodyHtml).replace(/\r?\n/g, '<br/>');
   html = html.replace(/href="(https?:\/\/[^"]+)"/g, (_, url) => {
     const p = new URLSearchParams(params);
     p.set('targetUrl', url);
@@ -118,7 +131,6 @@ async function getZohoAccessToken(userId: string, token: DocData): Promise<strin
 }
 
 const IN_FLIGHT_MS = 10 * 60 * 1000;
-const ZOHO_REPLY_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
 async function bumpStats(
   orgId: string,
@@ -226,71 +238,74 @@ async function incrementDailySendCount(orgId: string, userId: string): Promise<v
     );
 }
 
+type SendResult =
+  | { kind: 'sent' }
+  | { kind: 'skipped' | 'already_sent' | 'in_flight' }
+  | { kind: 'failed'; scope: 'sender' | 'recipient'; message: string };
+
+/** After this many failures for one recipient (bad address etc.) the enrollment stops. */
+const MAX_RECIPIENT_FAILURES = 3;
+
+function errorStatus(err: unknown): number | undefined {
+  const e = err as { status?: unknown; code?: unknown; response?: { status?: unknown } };
+  const s = Number(e?.response?.status ?? e?.status ?? e?.code);
+  return Number.isFinite(s) && s >= 100 && s < 600 ? s : undefined;
+}
+
+/**
+ * Is this a problem with the sending mailbox or the server set-up (stop using this sender
+ * for the rest of the run) rather than with this one recipient?
+ */
+function isSenderLevelError(err: unknown, message: string): boolean {
+  if (err instanceof ZohoApiError && err.needsReauth) return true;
+  const status = errorStatus(err);
+  if (status && (status === 401 || status === 403 || status === 429 || status >= 500)) return true;
+  return /TOKEN_ENCRYPTION_KEY|APP_URL|token_missing|zoho_mailbox_incomplete|invalid_grant|invalid_client|unauthorized_client|Untrusted Zoho|quota|rate ?limit|limit exceeded|sending limit/i.test(
+    message
+  );
+}
+
+/** Only genuine authorisation failures ask the user to reconnect their inbox. */
+function needsReconnect(err: unknown, message: string): boolean {
+  return (err instanceof ZohoApiError && err.needsReauth) || /invalid_grant|token_missing/i.test(message);
+}
+
+/** Send the current step of one enrollment from a sender already checked to be ready. */
 async function sendOneEnrollment(params: {
   orgId: string;
   sequenceId: string;
   sequence: DocData;
-  enrollmentId: string;
-  enrollment: DocData;
-}): Promise<boolean> {
-  const { orgId, sequenceId, sequence, enrollmentId, enrollment } = params;
+  enrDoc: FirebaseFirestore.QueryDocumentSnapshot;
+  senderUserId: string;
+  sender: DocData;
+  token: DocData;
+}): Promise<SendResult> {
+  const { orgId, sequenceId, sequence, enrDoc, senderUserId, sender, token } = params;
+  const enrollment = enrDoc.data();
+  const org = db.collection('organizations').doc(orgId);
   const stepIndex = enrollment.currentStepIndex || 0;
   const step = sequence.steps?.[stepIndex];
+  const stamp = () => new Date().toISOString();
+
   if (!step) {
-    await db
-      .collection('organizations')
-      .doc(orgId)
-      .collection('sequences')
-      .doc(sequenceId)
-      .collection('enrollments')
-      .doc(enrollmentId)
-      .update({ status: 'completed', nextSendDueAt: null, updatedAt: new Date().toISOString() });
-    return false;
+    await enrDoc.ref.update({ status: 'completed', nextSendDueAt: null, updatedAt: stamp() });
+    return { kind: 'skipped' };
   }
 
-  const senderUserIds: string[] = sequence.settings?.senderUserIds || [];
-  if (!senderUserIds.length) return false;
-
-  const dailyCap = sequence.settings?.dailyCapPerMailbox || 50;
-  let senderUserId: string | null = null;
-  for (const uid of senderUserIds) {
-    const count = await getDailySendCount(orgId, uid);
-    if (count < dailyCap) {
-      senderUserId = uid;
-      break;
-    }
+  const contactSnap = await org.collection('contacts').doc(enrollment.contactId).get();
+  if (!contactSnap.exists || !contactSnap.get('email')) {
+    await enrDoc.ref.update({ status: 'error', nextSendDueAt: null, lastError: 'contact_missing', updatedAt: stamp() });
+    return { kind: 'skipped' };
   }
-  if (!senderUserId) return false;
-
-  if (sequence.settings?.sendingWindow && !isWithinSendingWindow(sequence.settings.sendingWindow)) {
-    return false;
+  const contact: DocData = { ...contactSnap.data()!, id: contactSnap.id };
+  // People who unsubscribed or bounced after being enrolled are never emailed again.
+  if (contact.lifecycleStage === 'unsubscribed' || contact.lifecycleStage === 'bounced') {
+    await enrDoc.ref.update({ status: contact.lifecycleStage, nextSendDueAt: null, updatedAt: stamp() });
+    return { kind: 'skipped' };
   }
-
-  const contactSnap = await db
-    .collection('organizations')
-    .doc(orgId)
-    .collection('contacts')
-    .doc(enrollment.contactId)
-    .get();
-  if (!contactSnap.exists) return false;
-  const contact = contactSnap.data()!;
-
-  const senderSnap = await db
-    .collection('organizations')
-    .doc(orgId)
-    .collection('users')
-    .doc(senderUserId)
-    .get();
-  if (!senderSnap.exists) return false;
-  const sender = senderSnap.data()!;
-  if (sender.inboxStatus !== 'connected') return false;
 
   const sendAttemptId = `${sequenceId}_${enrollment.contactId}_${stepIndex}`;
-  const attemptRef = db
-    .collection('organizations')
-    .doc(orgId)
-    .collection('sendAttempts')
-    .doc(sendAttemptId);
+  const attemptRef = org.collection('sendAttempts').doc(sendAttemptId);
 
   // Only a confirmed send counts as sent; a failed attempt is retried, and a fresh claim
   // stops two overlapping runs from sending the same step.
@@ -303,21 +318,18 @@ async function sendOneEnrollment(params: {
     tx.set(attemptRef, {
       sendAttemptId,
       status: 'sending',
-      claimedAt: new Date().toISOString(),
+      claimedAt: stamp(),
       attempts: (existing?.attempts || 0) + 1,
     });
     return 'claimed';
   });
-  if (claim === 'in_flight') return false;
+  if (claim === 'in_flight') return { kind: 'in_flight' };
   if (claim === 'already_sent') {
-    await advanceEnrollment(orgId, sequenceId, enrollmentId, enrollment, step, sendAttemptId, undefined, senderUserId);
-    return true;
+    await advanceEnrollment(orgId, sequenceId, enrDoc.id, enrollment, step, sendAttemptId, undefined, senderUserId);
+    return { kind: 'already_sent' };
   }
 
   try {
-    const tokenDoc = await db.collection('tokens').doc(senderUserId).get();
-    if (!tokenDoc.exists) throw new Error('token_missing');
-    const token = tokenDoc.data()!;
     const subject = personalize(step.subject, contact);
     const body = personalize(step.body, contact);
     const eventId = `evt_${sendAttemptId}`;
@@ -399,29 +411,40 @@ async function sendOneEnrollment(params: {
 
     await incrementDailySendCount(orgId, senderUserId);
     await bumpStats(orgId, sequenceId, 'sent', senderUserId);
-    await advanceEnrollment(orgId, sequenceId, enrollmentId, enrollment, step, sendAttemptId, messageId, senderUserId);
+    await advanceEnrollment(orgId, sequenceId, enrDoc.id, enrollment, step, sendAttemptId, messageId, senderUserId);
 
     // Leads become "contacted" — never downgrade a contact who is already further along.
     if (!contact.lifecycleStage || contact.lifecycleStage === 'lead') {
       await contactSnap.ref.set({ lifecycleStage: 'contacted', updatedAt: now }, { merge: true });
     }
 
-    return true;
+    return { kind: 'sent' };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'send_failed';
-    await attemptRef.set({ status: 'failed', error: message.slice(0, 500), failedAt: new Date().toISOString() }, { merge: true });
-    if (
-      (err instanceof ZohoApiError && err.needsReauth) ||
-      message.includes('invalid_grant') ||
-      message.includes('token')
-    ) {
-      await senderSnap.ref.set(
-        { inboxStatus: 'needs_reauth', updatedAt: new Date().toISOString() },
-        { merge: true }
-      );
+    await attemptRef.set({ status: 'failed', error: message.slice(0, 500), failedAt: stamp() }, { merge: true });
+
+    if (isSenderLevelError(err, message)) {
+      if (needsReconnect(err, message)) {
+        await org.collection('users').doc(senderUserId).set({ inboxStatus: 'needs_reauth', updatedAt: stamp() }, { merge: true });
+      }
+      console.error(`Sender ${senderUserId} paused for this run:`, message);
+      return { kind: 'failed', scope: 'sender', message };
     }
-    console.error('Send failed:', message);
-    return false;
+
+    // A problem with this recipient: retry later with back-off, then give up on them.
+    const failures = (enrollment.sendFailures || 0) + 1;
+    await enrDoc.ref.update(
+      failures >= MAX_RECIPIENT_FAILURES
+        ? { status: 'error', nextSendDueAt: null, sendFailures: failures, lastError: message.slice(0, 300), updatedAt: stamp() }
+        : {
+            sendFailures: failures,
+            lastError: message.slice(0, 300),
+            nextSendDueAt: new Date(Date.now() + failures * 60 * 60 * 1000).toISOString(),
+            updatedAt: stamp(),
+          }
+    );
+    console.warn(`Send to contact ${enrollment.contactId} failed (${failures}/${MAX_RECIPIENT_FAILURES}):`, message);
+    return { kind: 'failed', scope: 'recipient', message };
   }
 }
 
@@ -487,6 +510,8 @@ async function advanceEnrollment(
     .update({
       currentStepIndex: nextIndex,
       nextSendDueAt: due.toISOString(),
+      // Due follow-ups are sent before first emails to new contacts (see sendDueForSequence).
+      followUp: true,
       history,
       lastSendAttemptId: sendAttemptId,
       updatedAt: now.toISOString(),
@@ -533,111 +558,271 @@ async function recordReply(p: {
 }
 
 /**
- * Zoho has no push notifications, so check a Zoho sender's mailbox for a reply from this
- * contact since the last send. Returns true when a reply was found and recorded.
+ * Zoho has no push notifications, so scan the sender's mailbox once per run for anything
+ * received since the last scan, and record a reply for each enrolled contact who wrote back.
+ * Returns the number of replies recorded.
  */
-async function checkZohoReply(
+async function scanZohoReplies(
   orgId: string,
-  sequenceId: string,
-  enrDoc: FirebaseFirestore.QueryDocumentSnapshot,
   senderUserId: string,
   token: DocData,
-  due: boolean
-): Promise<boolean> {
-  const enrollment = enrDoc.data();
-  const lastSentAt: string | undefined = enrollment.history?.[enrollment.history.length - 1]?.sentAt;
-  if (!lastSentAt || !token.apiBase || !token.zohoAccountId) return false;
-  const lastCheck = Date.parse(enrollment.lastReplyCheckAt || '') || 0;
-  if (!due && Date.now() - lastCheck < ZOHO_REPLY_CHECK_INTERVAL_MS) return false;
+  sequences: FirebaseFirestore.QueryDocumentSnapshot[]
+): Promise<number> {
+  if (!token.apiBase || !token.zohoAccountId) return 0;
+  const org = db.collection('organizations').doc(orgId);
+  const stateRef = org.collection('mailboxState').doc(senderUserId);
+  const scanStartedAt = Date.now();
+  const lastScan = Date.parse((await stateRef.get()).get('lastScanAt') || '');
+  const earliestLaunch = Math.min(...sequences.map((s) => Date.parse(s.get('createdAt') || '') || scanStartedAt));
+  // Overlap the previous scan a little; never look back more than two weeks.
+  const sinceMs = Math.max(Number.isFinite(lastScan) ? lastScan - 10 * 60 * 1000 : earliestLaunch, scanStartedAt - 14 * 86400000);
 
   try {
-    const contact = await db.collection('organizations').doc(orgId).collection('contacts').doc(enrollment.contactId).get();
-    if (!contact.exists) return false;
-    const reply = await findZohoReplySince({
+    const messages = await listZohoMessagesSince({
       apiBase: token.apiBase,
       accessToken: await getZohoAccessToken(senderUserId, token),
       accountId: token.zohoAccountId,
-      fromEmail: String(contact.get('email') || ''),
-      sinceMs: Date.parse(lastSentAt),
+      sinceMs,
     });
-    await enrDoc.ref.set({ lastReplyCheckAt: new Date().toISOString() }, { merge: true });
-    if (!reply) return false;
-    await recordReply({
-      orgId,
-      sequenceId,
-      contactId: enrollment.contactId,
-      senderUserId,
-      replyId: `zoho_${reply.messageId}`,
-      source: 'Zoho Mail',
-    });
-    return true;
+    const own = String(token.fromAddress || '').toLowerCase();
+    const newestByAddress = new Map<string, { messageId: string; receivedMs: number }>();
+    for (const m of messages) {
+      if (m.fromAddress === own) continue;
+      const prev = newestByAddress.get(m.fromAddress);
+      if (!prev || m.receivedMs > prev.receivedMs) newestByAddress.set(m.fromAddress, m);
+    }
+
+    let found = 0;
+    const addresses = [...newestByAddress.keys()].slice(0, 600);
+    for (let i = 0; i < addresses.length; i += 30) {
+      const contacts = await org.collection('contacts').where('email', 'in', addresses.slice(i, i + 30)).get();
+      for (const c of contacts.docs) {
+        const msg = newestByAddress.get(String(c.get('email')).toLowerCase());
+        if (!msg) continue;
+        for (const seq of sequences) {
+          const enr = await seq.ref.collection('enrollments').doc(c.id).get();
+          const e = enr.data();
+          if (!e || e.status !== 'active' || !e.history?.length) continue;
+          // Anything from them after we first emailed them counts as a reply.
+          if (msg.receivedMs <= Date.parse(e.history[0].sentAt)) continue;
+          await recordReply({
+            orgId,
+            sequenceId: seq.id,
+            contactId: c.id,
+            senderUserId,
+            replyId: `zoho_${msg.messageId}`,
+            source: 'Zoho Mail',
+          });
+          found++;
+        }
+      }
+    }
+    await stateRef.set(
+      { lastScanAt: new Date(scanStartedAt).toISOString(), lastScanMessages: messages.length, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+    return found;
   } catch (err) {
     if (err instanceof ZohoApiError && err.needsReauth) {
-      await db.collection('organizations').doc(orgId).collection('users').doc(senderUserId).set(
-        { inboxStatus: 'needs_reauth', updatedAt: new Date().toISOString() },
-        { merge: true }
-      );
+      await org.collection('users').doc(senderUserId).set({ inboxStatus: 'needs_reauth', updatedAt: new Date().toISOString() }, { merge: true });
     }
-    console.warn('Zoho reply check failed:', err instanceof Error ? err.message : err);
-    return false;
+    console.warn('Zoho reply scan failed:', err instanceof Error ? err.message : err);
+    return 0;
   }
 }
 
-async function runSequenceTick(): Promise<{ processed: number }> {
+// ---------- Send engine ----------
+
+const TICK_MINUTES = 5;
+/** Hard ceiling per sender per run, whatever the daily limit. */
+const MAX_SENDS_PER_RUN = 25;
+const DUE_PAGE_SIZE = 100;
+
+type SendingWindow = { startHour: number; endHour: number; timezone: string };
+
+/** Minutes left today in the sending window (or until the UTC day — and the daily count — resets). */
+function minutesLeftToday(window?: SendingWindow): number {
+  const now = new Date();
+  if (!window) return 24 * 60 - (now.getUTCHours() * 60 + now.getUTCMinutes());
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: window.timezone || 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
+    const h = Number(parts.find((p) => p.type === 'hour')?.value);
+    const m = Number(parts.find((p) => p.type === 'minute')?.value);
+    return window.endHour * 60 - (h * 60 + m);
+  } catch {
+    return window.endHour * 60 - (now.getUTCHours() * 60 + now.getUTCMinutes());
+  }
+}
+
+/**
+ * How many emails this sender may send in this run: what's left of the daily limit, spread
+ * evenly over the runs left in today's window (a steady trickle, not a burst at opening time).
+ */
+function runQuota(remainingToday: number, window?: SendingWindow): number {
+  const runsLeft = Math.max(1, Math.floor(minutesLeftToday(window) / TICK_MINUTES));
+  return Math.min(MAX_SENDS_PER_RUN, Math.ceil(remainingToday / runsLeft));
+}
+
+interface TickContext {
+  /** Senders that hit a mailbox/server problem this run, with the reason. */
+  blocked: Map<string, string>;
+  senders: Map<string, { sender: DocData; token: DocData } | { problem: string }>;
+}
+
+/** Explain a sender problem in words an admin can act on. */
+function describeSenderProblem(message: string): string {
+  if (/TOKEN_ENCRYPTION_KEY/.test(message)) return 'The sending service is missing TOKEN_ENCRYPTION_KEY, so it can’t unlock the connected inbox.';
+  if (/APP_URL/.test(message)) return 'The sending service is missing NEXT_PUBLIC_APP_URL, so tracking links can’t be built.';
+  if (/invalid_client|ZOHO_CLIENT|GOOGLE_CLIENT/i.test(message)) return 'The sending service’s Zoho/Google OAuth client settings are missing or wrong.';
+  if (/invalid_grant|token_missing|needs reconnect|INVALID_OAUTHTOKEN/i.test(message)) return 'The sending inbox needs to be reconnected.';
+  if (/quota|rate ?limit|limit exceeded|sending limit/i.test(message)) return 'The mail provider is rate-limiting this inbox; sending resumes automatically.';
+  return `Sending is failing: ${message.slice(0, 200)}`;
+}
+
+async function loadSender(orgId: string, uid: string, ctx: TickContext) {
+  if (!ctx.senders.has(uid)) {
+    const [userSnap, tokenSnap] = await Promise.all([
+      db.collection('organizations').doc(orgId).collection('users').doc(uid).get(),
+      db.collection('tokens').doc(uid).get(),
+    ]);
+    const status = userSnap.get('inboxStatus');
+    ctx.senders.set(
+      uid,
+      !userSnap.exists
+        ? { problem: 'The sender of this sequence is no longer in the workspace.' }
+        : status !== 'connected' || !tokenSnap.exists
+          ? { problem: status === 'needs_reauth' ? 'The sending inbox needs to be reconnected (Settings → Sending inbox).' : 'The sender has no inbox connected.' }
+          : { sender: userSnap.data()!, token: tokenSnap.data()! }
+    );
+  }
+  return ctx.senders.get(uid)!;
+}
+
+/** Record how delivery is going on the sequence, so problems show up in the app. */
+async function setDeliveryStatus(seqDoc: FirebaseFirestore.QueryDocumentSnapshot, status: { state: 'ok' | 'error'; message: string | null }, sent: number) {
+  const prev = seqDoc.get('deliveryStatus') || {};
+  if (!sent && prev.state === status.state && prev.message === status.message) return;
+  const now = new Date().toISOString();
+  await seqDoc.ref.set(
+    { deliveryStatus: { ...prev, ...status, checkedAt: now, ...(sent ? { lastSentAt: now } : {}) } },
+    { merge: true }
+  );
+}
+
+/** Send what's due for one sequence, within its window, daily limit and per-run pace. */
+async function sendDueForSequence(orgId: string, seqDoc: FirebaseFirestore.QueryDocumentSnapshot, ctx: TickContext): Promise<number> {
+  const sequence = seqDoc.data();
+  const senderIds: string[] = sequence.settings?.senderUserIds || [];
+  const window: SendingWindow | undefined = sequence.settings?.sendingWindow;
+  if (!senderIds.length) {
+    await setDeliveryStatus(seqDoc, { state: 'error', message: 'No sending inbox is set for this sequence.' }, 0);
+    return 0;
+  }
+  if (window && !isWithinSendingWindow(window)) return 0;
+
+  const cap = sequence.settings?.dailyCapPerMailbox || 50;
+  const budgets = new Map<string, number>();
+  const ready = new Map<string, { sender: DocData; token: DocData }>();
+  const problems: string[] = [];
+  for (const uid of senderIds) {
+    if (ctx.blocked.has(uid)) {
+      problems.push(ctx.blocked.get(uid)!);
+      continue;
+    }
+    const info = await loadSender(orgId, uid, ctx);
+    if ('problem' in info) {
+      problems.push(info.problem);
+      continue;
+    }
+    const remaining = cap - (await getDailySendCount(orgId, uid));
+    if (remaining <= 0) continue;
+    budgets.set(uid, runQuota(remaining, window));
+    ready.set(uid, info);
+  }
+  if (!budgets.size) {
+    if (problems.length) await setDeliveryStatus(seqDoc, { state: 'error', message: problems[0] }, 0);
+    return 0;
+  }
+
+  const nowIso = new Date().toISOString();
+  let sent = 0;
+  const enrollmentsRef = seqDoc.ref.collection('enrollments');
+
+  /** Send through a due-ordered query until the run's budget is used up. */
+  const drain = async (base: FirebaseFirestore.Query) => {
+    let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+    for (;;) {
+      const page: FirebaseFirestore.QuerySnapshot = await (cursor ? base.startAfter(cursor) : base).limit(DUE_PAGE_SIZE).get();
+      for (const enrDoc of page.docs) {
+        if (enrDoc.get('status') !== 'active') continue;
+        // The sender with the most room left this run.
+        const uid = [...budgets.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (!uid) return;
+        const { sender, token } = ready.get(uid)!;
+        const result = await sendOneEnrollment({ orgId, sequenceId: seqDoc.id, sequence, enrDoc, senderUserId: uid, sender, token });
+        if (result.kind === 'sent') {
+          sent++;
+          const left = budgets.get(uid)! - 1;
+          if (left > 0) budgets.set(uid, left);
+          else budgets.delete(uid);
+        } else if (result.kind === 'failed' && result.scope === 'sender') {
+          const reason = describeSenderProblem(result.message);
+          ctx.blocked.set(uid, reason);
+          problems.push(reason);
+          budgets.delete(uid);
+        }
+      }
+      if (page.size < DUE_PAGE_SIZE || !budgets.size) return;
+      cursor = page.docs[page.docs.length - 1];
+    }
+  };
+
+  // 1. Follow-ups that are due go first, so people get step 2 on time even while thousands
+  //    of first emails are still queued. (Uses the followUp + nextSendDueAt index.)
+  try {
+    await drain(enrollmentsRef.where('followUp', '==', true).where('nextSendDueAt', '<=', nowIso).orderBy('nextSendDueAt'));
+  } catch (err) {
+    console.warn('Follow-up query failed (is the Firestore index deployed?):', err instanceof Error ? err.message : err);
+  }
+  // 2. Then everything else that's due, oldest first.
+  if (budgets.size) await drain(enrollmentsRef.where('nextSendDueAt', '<=', nowIso).orderBy('nextSendDueAt'));
+
+  await setDeliveryStatus(seqDoc, sent || !problems.length ? { state: 'ok', message: null } : { state: 'error', message: problems[0] }, sent);
+  return sent;
+}
+
+async function runSequenceTick(): Promise<{ processed: number; replies: number }> {
   const orgs = await db.collection('organizations').get();
   let processed = 0;
-  const nowIso = new Date().toISOString();
-  const tokenCache = new Map<string, DocData | null>();
+  let replies = 0;
 
   for (const orgDoc of orgs.docs) {
-    const orgId = orgDoc.id;
-    const sequences = await db
-      .collection('organizations')
-      .doc(orgId)
-      .collection('sequences')
-      .where('status', '==', 'active')
-      .get();
+    const ctx: TickContext = { blocked: new Map(), senders: new Map() };
+    const sequences = await orgDoc.ref.collection('sequences').where('status', '==', 'active').get();
 
-    for (const seqDoc of sequences.docs) {
-      const sequence = seqDoc.data();
-      const enrollments = await seqDoc.ref
-        .collection('enrollments')
-        .where('status', '==', 'active')
-        .get();
+    // Zoho reply detection first (one mailbox scan per Zoho sender), so nobody who
+    // replied gets the next follow-up.
+    const bySender = new Map<string, FirebaseFirestore.QueryDocumentSnapshot[]>();
+    for (const seq of sequences.docs) {
+      for (const uid of (seq.get('settings.senderUserIds') as string[] | undefined) || []) {
+        bySender.set(uid, [...(bySender.get(uid) || []), seq]);
+      }
+    }
+    for (const [uid, seqs] of bySender) {
+      const info = await loadSender(orgDoc.id, uid, ctx);
+      if ('token' in info && info.token.provider === 'zoho') replies += await scanZohoReplies(orgDoc.id, uid, info.token, seqs);
+    }
 
-      for (const enrDoc of enrollments.docs) {
-        const enrollment = enrDoc.data();
-        const due = Boolean(enrollment.nextSendDueAt && enrollment.nextSendDueAt <= nowIso);
-
-        // Zoho reply detection for the mailbox that sent the last step.
-        const lastSender: string | undefined =
-          enrollment.history?.[enrollment.history.length - 1]?.senderUserId || sequence.settings?.senderUserIds?.[0];
-        if (lastSender && enrollment.history?.length) {
-          if (!tokenCache.has(lastSender)) {
-            const t = await db.collection('tokens').doc(lastSender).get();
-            tokenCache.set(lastSender, t.exists ? t.data()! : null);
-          }
-          const token = tokenCache.get(lastSender);
-          if (token?.provider === 'zoho' && (await checkZohoReply(orgId, seqDoc.id, enrDoc, lastSender, token, due))) {
-            continue;
-          }
-        }
-
-        if (!due) continue;
-
-        const sent = await sendOneEnrollment({
-          orgId,
-          sequenceId: seqDoc.id,
-          sequence,
-          enrollmentId: enrDoc.id,
-          enrollment,
-        });
-        if (sent) processed++;
+    for (const seq of sequences.docs) {
+      try {
+        processed += await sendDueForSequence(orgDoc.id, seq, ctx);
+      } catch (err) {
+        console.error(`Sequence ${seq.id} tick failed:`, err instanceof Error ? err.message : err);
       }
     }
   }
 
-  return { processed };
+  return { processed, replies };
 }
 
 /**
@@ -647,7 +832,7 @@ export const onSequenceTick = onSchedule(
   { schedule: 'every 5 minutes', timeoutSeconds: 540, memory: '512MiB' },
   async () => {
     const result = await runSequenceTick();
-    console.log('onSequenceTick processed', result.processed);
+    console.log('onSequenceTick sent', result.processed, 'replies', result.replies);
   }
 );
 
@@ -904,7 +1089,15 @@ export const trackClick = onRequest(async (req, res) => {
     }
   }
 
-  res.redirect(302, targetUrl);
+  // Only forward to ordinary web links (never javascript:, data: or other schemes).
+  let destination = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || '/').replace(/\/+$/, '') || '/';
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') destination = parsed.toString();
+  } catch {
+    // malformed target — fall back to the app
+  }
+  res.redirect(302, destination);
 });
 
 /**
